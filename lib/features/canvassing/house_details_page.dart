@@ -95,6 +95,13 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
         'user_email': user.email,
         'event_type': eventType,
         'notes': null, // placeholder if we add notes later
+
+        // DUMMY geo (replace later)
+        'lat': 42.2743,
+        'lon': -71.8077,
+        'accuracy_m': 9999,
+        'geo_source': 'dummy',
+        'geo_error': null,
       });
 
       // 3) Refresh both the house snapshot and the event list
