@@ -123,6 +123,21 @@ class _TownsPageState extends State<TownsPage> {
             tooltip: 'Reload',
             onPressed: _loadAllTowns,
           ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Log out',
+            onPressed: () async {
+              try {
+                await Supabase.instance.client.auth.signOut();
+                // AuthGate will automatically route back to SignInPage.
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Logout failed: $e')),
+                );
+              }
+            },
+          ),
         ],
       ),
       body: Column(
