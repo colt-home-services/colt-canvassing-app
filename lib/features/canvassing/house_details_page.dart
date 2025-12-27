@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:chs_companion/core/theme/chs_colors.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:math' as Math;
 
 class HouseDetailsPage extends StatefulWidget {
   final String address;
@@ -123,6 +124,91 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
     }
   }
   // ====================================================
+  double _haversineMeters(double lat1, double lon1, double lat2, double lon2) {
+    const earthRadiusM = 6371000.0;
+    double toRad(double deg) => deg * (3.141592653589793 / 180.0);
+
+    final dLat = toRad(lat2 - lat1);
+    final dLon = toRad(lon2 - lon1);
+
+    final a = (Math.sin(dLat / 2) * Math.sin(dLat / 2)) +
+        Math.cos(toRad(lat1)) *
+            Math.cos(toRad(lat2)) *
+            (Math.sin(dLon / 2) * Math.sin(dLon / 2));
+
+    final c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return earthRadiusM * c;
+  }
+
+  // You need this import at the TOP of the file:
+  // import 'dart:math' as Math;
+
+  Future<({
+    double? lat,
+    double? lon,
+    double? accuracyM,
+    String geoSource,
+    String? geoError,
+  })> _getGeoFixNonBlocking() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied) {
+        return (
+          lat: null,
+          lon: null,
+          accuracyM: null,
+          geoSource: 'none',
+          geoError: 'permission_denied',
+        );
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        return (
+          lat: null,
+          lon: null,
+          accuracyM: null,
+          geoSource: 'none',
+          geoError: 'permission_denied_forever',
+        );
+      }
+
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return (
+          lat: null,
+          lon: null,
+          accuracyM: null,
+          geoSource: 'none',
+          geoError: 'location_services_disabled',
+        );
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 6),
+      );
+
+      return (
+        lat: pos.latitude,
+        lon: pos.longitude,
+        accuracyM: pos.accuracy,
+        geoSource: 'browser_geolocation',
+        geoError: null,
+      );
+    } catch (_) {
+      return (
+        lat: null,
+        lon: null,
+        accuracyM: null,
+        geoSource: 'none',
+        geoError: 'unavailable',
+      );
+    }
+  }
 
   Future<void> _updateStatus({
     required String fieldBool,
@@ -155,6 +241,32 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
             fieldUser: userIdentifier,
           })
           .eq('address', widget.address);
+      
+      // Fetch house coords (small query, avoids relying on UI state)
+      final houseCoord = await _supabase
+          .from('houses')
+          .select('lat, lon')
+          .eq('address', widget.address)
+          .single();
+
+      final houseLat = (houseCoord['lat'] as num?)?.toDouble();
+      final houseLon = (houseCoord['lon'] as num?)?.toDouble();
+
+      // Get user GPS (non-blocking result object)
+      final fix = await _getGeoFixNonBlocking();
+
+      // Compute distance if possible
+      double? distanceM;
+      String? geoError = fix.geoError;
+
+      if (fix.lat != null && fix.lon != null && houseLat != null && houseLon != null) {
+        distanceM = _haversineMeters(fix.lat!, fix.lon!, houseLat, houseLon);
+      } else {
+        // If GPS succeeded but house coords missing, capture a helpful reason
+        if (geoError == null && (houseLat == null || houseLon == null)) {
+          geoError = 'house_missing_coords';
+        }
+      }
 
       // 2) Insert a row into house_events (history)
       await _supabase.from('house_events').insert({
@@ -163,14 +275,15 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
         'user_id': user.id,
         'user_email': user.email,
         'event_type': eventType,
-        'notes': null, // placeholder if we add notes later
+        'notes': null,
 
-        // DUMMY geo (replace later)
-        'lat': 42.2743,
-        'lon': -71.8077,
-        'accuracy_m': 9999,
-        'geo_source': 'dummy',
-        'geo_error': null,
+        // Geo info
+        'lat': fix.lat,
+        'lon': fix.lon,
+        'accuracy_m': fix.accuracyM,
+        'geo_source': fix.geoSource,
+        'geo_error': geoError,
+        'distance_m': distanceM,
       });
 
       // 3) Refresh both the house snapshot and the event list
