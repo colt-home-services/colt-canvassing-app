@@ -23,16 +23,34 @@ class RoleGatePage extends StatelessWidget {
           .from('profiles')
           .select('role')
           .eq('user_id', user.id)
-          .single(),
+          .single()
+          .timeout(const Duration(seconds: 8)),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        final role = (snapshot.data!['role'] as String?) ?? 'canvasser';
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'RoleGate error: ${snapshot.error}\n\n'
+                  'Common causes:\n'
+                  '- RLS blocking profiles\n'
+                  '- No profile row for this user\n'
+                  '- Network / Supabase unreachable',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          );
+        }
 
+        final role = (snapshot.data?['role'] as String?) ?? 'canvasser';
         if (role == 'manager') return const ManagerDashboardPage();
         return const CanvasserDashboardPage();
       },

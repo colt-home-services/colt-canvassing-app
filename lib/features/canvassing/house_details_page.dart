@@ -28,12 +28,12 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
 
   bool _isUpdating = false;
 
-  // ===== Step 5: GPS Test State =====
-  double? _userLat;
-  double? _userLon;
-  double? _userAccuracyM;
-  String? _geoError;
-  bool _gettingGeo = false;
+  // // ===== Step 5: GPS Test State =====
+  // double? _userLat;
+  // double? _userLon;
+  // double? _userAccuracyM;
+  // String? _geoError;
+  // bool _gettingGeo = false;
   // ================================
 
   @override
@@ -65,65 +65,65 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
     return response.cast<Map<String, dynamic>>();
   }
 
-  // ===== Step 5: GPS Test Function (NO DB writes) =====
-  Future<void> _testGps() async {
-    setState(() {
-      _gettingGeo = true;
-      _geoError = null;
-    });
+  // // ===== Step 5: GPS Test Function (NO DB writes) =====
+  // Future<void> _testGps() async {
+  //   setState(() {
+  //     _gettingGeo = true;
+  //     _geoError = null;
+  //   });
 
-    try {
-      // Permissions
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
+  //   try {
+  //     // Permissions
+  //     var permission = await Geolocator.checkPermission();
+  //     if (permission == LocationPermission.denied) {
+  //       permission = await Geolocator.requestPermission();
+  //     }
 
-      if (permission == LocationPermission.denied) {
-        setState(() {
-          _geoError = 'permission_denied';
-          _gettingGeo = false;
-        });
-        return;
-      }
+  //     if (permission == LocationPermission.denied) {
+  //       setState(() {
+  //         _geoError = 'permission_denied';
+  //         _gettingGeo = false;
+  //       });
+  //       return;
+  //     }
 
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          _geoError = 'permission_denied_forever';
-          _gettingGeo = false;
-        });
-        return;
-      }
+  //     if (permission == LocationPermission.deniedForever) {
+  //       setState(() {
+  //         _geoError = 'permission_denied_forever';
+  //         _gettingGeo = false;
+  //       });
+  //       return;
+  //     }
 
-      // Service enabled (may behave differently on web, but still useful)
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() {
-          _geoError = 'location_services_disabled';
-          _gettingGeo = false;
-        });
-        return;
-      }
+  //     // Service enabled (may behave differently on web, but still useful)
+  //     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  //     if (!serviceEnabled) {
+  //       setState(() {
+  //         _geoError = 'location_services_disabled';
+  //         _gettingGeo = false;
+  //       });
+  //       return;
+  //     }
 
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 6),
-      );
+  //     final pos = await Geolocator.getCurrentPosition(
+  //       desiredAccuracy: LocationAccuracy.high,
+  //       timeLimit: const Duration(seconds: 6),
+  //     );
 
-      setState(() {
-        _userLat = pos.latitude;
-        _userLon = pos.longitude;
-        _userAccuracyM = pos.accuracy;
-        _gettingGeo = false;
-      });
-    } catch (e) {
-      setState(() {
-        _geoError = 'unavailable';
-        _gettingGeo = false;
-      });
-    }
-  }
-  // ====================================================
+  //     setState(() {
+  //       _userLat = pos.latitude;
+  //       _userLon = pos.longitude;
+  //       _userAccuracyM = pos.accuracy;
+  //       _gettingGeo = false;
+  //     });
+  //   } catch (e) {
+  //     setState(() {
+  //       _geoError = 'unavailable';
+  //       _gettingGeo = false;
+  //     });
+  //   }
+  // }
+  // // ====================================================
   double _haversineMeters(double lat1, double lon1, double lat2, double lon2) {
     const earthRadiusM = 6371000.0;
     double toRad(double deg) => deg * (3.141592653589793 / 180.0);
@@ -456,21 +456,6 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
                   'Lat: ${lat ?? "null"}, Lon: ${lon ?? "null"}',
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
-
-                // ===== Step 5: Test GPS UI =====
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed: _gettingGeo ? null : _testGps,
-                  child: Text(_gettingGeo ? 'Getting GPS...' : 'Test GPS'),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _geoError != null
-                      ? 'GPS Error: $_geoError'
-                      : 'User GPS: ${_userLat ?? "null"}, ${_userLon ?? "null"} (±${_userAccuracyM?.toStringAsFixed(0) ?? "?"}m)',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-                // =================================
 
                 const SizedBox(height: 16),
 
