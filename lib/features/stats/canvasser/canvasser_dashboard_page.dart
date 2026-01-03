@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../canvassing/towns_page.dart';
 
 class CanvasserDashboardPage extends StatefulWidget {
@@ -17,7 +18,6 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
   bool _loading = false;
   String? _error;
 
-  // Joined rows per day
   List<Map<String, dynamic>> _rows = [];
 
   @override
@@ -32,6 +32,15 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   Future<void> _fetch() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      setState(() {
+        _error = 'Not signed in.';
+        _rows = [];
+        _loading = false;
+      });
+      return;
+    }
     if (_range == null) return;
 
     setState(() {
@@ -43,10 +52,11 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
       final startStr = _fmtYmd(_range!.start);
       final endStr = _fmtYmd(_range!.end);
 
-      // Fetch both views (RLS ensures "only me")
+      // ✅ Filter by the logged-in user_id explicitly (do NOT rely on view/RLS behavior)
       final payrollRaw = await _supabase
           .from('v_payroll_daily')
           .select()
+          .match({'user_id': user.id})
           .gte('work_date_ny', startStr)
           .lte('work_date_ny', endStr)
           .order('work_date_ny', ascending: false);
@@ -54,6 +64,7 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
       final perfRaw = await _supabase
           .from('v_performance_daily')
           .select()
+          .match({'user_id': user.id})
           .gte('work_date_ny', startStr)
           .lte('work_date_ny', endStr)
           .order('work_date_ny', ascending: false);
@@ -66,14 +77,12 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
-      // Index performance by date for quick join
       final perfByDate = <String, Map<String, dynamic>>{};
       for (final r in perf) {
         final d = (r['work_date_ny'] ?? '').toString();
         if (d.isNotEmpty) perfByDate[d] = r;
       }
 
-      // Join into one row set (based on payroll dates; if performance exists without payroll, we can add later)
       final joined = <Map<String, dynamic>>[];
       for (final p in payroll) {
         final d = (p['work_date_ny'] ?? '').toString();
@@ -84,7 +93,6 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
           'billable_hours': p['billable_hours'],
           'valid_buckets': p['valid_buckets'],
           'total_knocks': p['total_knocks'],
-
           'answers': pr?['answers'] ?? 0,
           'signed_ups': pr?['signed_ups'] ?? 0,
           'answer_rate': pr?['answer_rate'] ?? 0,
@@ -183,7 +191,6 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
               ],
             ),
             const SizedBox(height: 12),
-
             if (_error != null)
               Container(
                 width: double.infinity,
@@ -194,9 +201,7 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
                 ),
                 child: Text('Error: $_error'),
               ),
-
             const SizedBox(height: 8),
-
             Expanded(
               child: _rows.isEmpty && !_loading
                   ? const Center(child: Text('No rows for selected range.'))
