@@ -8,14 +8,28 @@ canvassers and managers and is currently deployed as a Flutter Web app.
 
 ---
 
+## Live Deployment
+
+- **Platform:** GitHub Pages (Flutter Web)
+- **URL:** https://colt-home-services.github.io/colt-canvassing-app/
+- **Deployment method:** GitHub Actions (auto-build & deploy on push to `main`)
+- **Base path:** `/colt-canvassing-app/`
+- **Workflow:**
+  - Town → Street → House flows load correctly
+  - Search is responsive
+  - Auth persists across refresh
+  - Manager and Canvasser Dashboard
+
+---
+
 ## 1. Overview
 
 ### Main Features
 
 - Email + password sign-in / sign-up using Supabase Auth
-- CHS access code gate on sign-up  
+- CHS access code gate on sign-up (prevents unauthorized accounts)
   - Current code: `chs2025`
-  - Defined in `sign_in_page.dart`
+  - Location: `lib/features/auth/sign_in_page.dart`
 - Role-based access:
   - Canvasser
   - Manager
@@ -35,7 +49,7 @@ canvassers and managers and is currently deployed as a Flutter Web app.
 
 - Flutter (Dart, web-first)
 - Supabase (Postgres, Auth, RLS, RPCs, Views)
-- Flutter Web deployed via GitHub Pages
+- GitHub Pages + GitHub Actions (deployment)
 
 ---
 
@@ -45,15 +59,15 @@ Relevant folders under `lib/`:
 
 - `core/`
   - `theme/chs_colors.dart` – Colt brand colors
-  - `utils/address_format.dart` – ZIP code formatting and address helpers
+  - `utils/address_format.dart` – ZIP formatting and address helpers
 - `features/auth/`
-  - `sign_in_page.dart` – Sign in / sign up UI and CHS code gate
-  - `role_gate_page.dart` – Determines canvasser vs manager routing
+  - `sign_in_page.dart` – Sign in / sign up UI + CHS code gate
+  - `role_gate_page.dart` – Determines manager vs canvasser routing
 - `features/canvassing/`
-  - `towns_page.dart` – Loads list of towns
+  - `towns_page.dart` – Loads list of towns (searchable)
   - `streets_page.dart` – Streets within a town
   - `houses_page.dart` – Houses for a street
-  - `house_details_page.dart` – Status buttons and event history
+  - `house_details_page.dart` – Status buttons + event history
 - `features/stats/`
   - `canvasser/canvasser_dashboard_page.dart`
   - `manager/manager_dashboard_page.dart`
@@ -63,13 +77,11 @@ Relevant folders under `lib/`:
   - App theme
   - Root `MaterialApp`
 
-Navigation uses `Navigator.push` (no routing frameworks).
+**Navigation:** uses `Navigator.push` (no GoRouter, no named routes).
 
 ---
 
-## 3. Supabase Setup (Current State)
-
-The app assumes an existing Supabase project with the following schema.
+## 3. Supabase Setup
 
 ### Tables
 
@@ -121,7 +133,7 @@ Business logic for payroll and metrics lives in SQL views to keep Flutter UI sim
 
 - `get_unique_towns`
   - Used by Towns page
-  - Loads all towns once after login
+  - Loads all towns once after login (client-side search/filtering)
 - `get_houses_for_street`
   - Used by Houses page
   - Loads houses for selected street
@@ -140,17 +152,22 @@ Business logic for payroll and metrics lives in SQL views to keep Flutter UI sim
 
 ### Sign-Up Flow
 
-- User signs up with email and password
+- User signs up with email + password
 - Must enter valid CHS access code
 - Supabase account is created
-- Corresponding row must exist in `profiles`
+- A matching row must exist in `profiles`
 
 ### RoleGate
 
-- RoleGate fetches `profiles.role`
+Role routing is handled by:
+
+- `lib/features/auth/role_gate_page.dart`
+
+Behavior:
+- Reads `profiles.role` for the logged-in user
 - Routes user to:
-  - `CanvasserDashboardPage` if role is `canvasser`
-  - `ManagerDashboardPage` if role is `manager`
+  - `CanvasserDashboardPage` if role = `canvasser`
+  - `ManagerDashboardPage` if role = `manager`
 
 RoleGate is the single source of truth for role routing.
 
@@ -169,13 +186,13 @@ Shows personal stats over a selected date range:
 - Answer Rate
 - Conversion Rate
 
-#### Metric Definitions
+**Metric definitions**
 
 - Answer Rate = `answers / knocks`
 - Conversion Rate = `sign-ups / answers`
 - Paid Time = `valid 15-minute buckets × 0.25`
 
-Percentages are computed from summed totals, not averaged.
+Percentages are computed from summed totals (not averaged).
 
 ---
 
@@ -197,17 +214,17 @@ Clicking a row opens a bucket-level drilldown for auditing payroll logic.
 
 Geotagging is implemented in a non-blocking, observational manner.
 
-- Houses are pre-mapped to latitude and longitude using a Python script
-- Coordinates stored on the `houses` table
-- At time of knock:
-  - User GPS location is captured
-  - Distance to house location is calculated (Haversine)
-- Distance difference is displayed and logged
+- Houses are pre-mapped to latitude and longitude using Python script `geocode_houses.py`
+- Coordinates are stored in the `houses` table
+- At the time of a knock:
+  - the app captures the canvasser GPS location
+  - computes distance between canvasser and house (Haversine)
+  - displays/logs the distance difference
 
-Geotagging does not currently:
-- Block actions
-- Enforce hard distance limits
-- Apply penalties
+Geotagging currently does **not**:
+- block knock events
+- enforce distance thresholds
+- apply penalties
 
 ---
 
@@ -228,3 +245,85 @@ await Supabase.initialize(
   url: 'https://<project>.supabase.co',
   anonKey: '<public-anon-key>',
 );
+Run
+bash
+Copy code
+flutter pub get
+flutter run -d chrome
+
+8. Deployment (Flutter Web)
+Hosted on GitHub Pages
+
+Built via GitHub Actions on push to main
+
+build/ directory is gitignored
+
+No build artifacts committed
+
+Live URL: https://colt-home-services.github.io/colt-canvassing-app/
+
+9. Operational Guide (Managers & Future Interns)
+Sign-Up Access Code (CHS Code Gate)
+Current code: chs2025
+
+Update in: lib/features/auth/sign_in_page.dart
+
+Changing a User Role
+Run in Supabase SQL Editor:
+
+sql
+Copy code
+update profiles
+set role = 'manager'
+where user_id = '<USER_UUID>';
+Valid roles:
+
+canvasser
+
+manager
+
+Password Reset (Forgot Password) — Supabase URL Settings
+Supabase Dashboard → Authentication → URL Configuration
+
+Set:
+
+Site URL
+
+arduino
+Copy code
+https://colt-home-services.github.io/colt-canvassing-app/
+Add under Redirect URLs
+
+arduino
+Copy code
+https://colt-home-services.github.io/colt-canvassing-app/
+(Optional for local dev)
+
+arduino
+Copy code
+http://localhost:<PORT>/
+If Redirect URLs are missing, reset links can drop recovery tokens and appear to “hang”.
+
+Changing Passwords (Manual/Admin)
+If forgot password is disabled in the UI, an admin can:
+
+Supabase Dashboard → Authentication → Users → send reset password email
+
+10. Known Issues and Risks
+Rare initial town load timeout (retry resolves it)
+
+Streets/houses are not paginated (scalability risk with very large datasets)
+
+Possible divergence between house_events history and houses snapshot fields
+
+11. Future Work
+Enforced geotagging rules
+
+Pagination for houses
+
+Exportable reports
+
+Mobile (iOS/Android) builds
+
+Offline-first support
+

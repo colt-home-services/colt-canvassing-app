@@ -34,31 +34,29 @@ class _HousesPageState extends State<HousesPage> {
   String _displayAddress(Map<String, dynamic> house) {
     final addr = (house['address'] ?? '').toString().trim();
 
-    // Try to get zip from RPC row (supports common alternative keys)
+    // 1) Prefer ZIP from the row if it exists
     final rawZip =
         (house['zip'] ?? house['zipcode'] ?? house['postal_code'])?.toString();
     final zFromRow = formatZip(rawZip);
 
-    // If we have a zip from the row, force-replace any trailing 4/5 digit zip in the address
     if (zFromRow.isNotEmpty) {
+      // Remove any trailing 4/5-digit zip (or ZIP+4) and append correct formatted zip
       final cleaned = addr.replaceAll(RegExp(r'\s+\d{4,5}(\-\d{4})?\s*$'), '');
       return '$cleaned $zFromRow';
     }
 
-    // Otherwise, fall back: extract a trailing zip from the address and pad it if needed.
-    // Matches "... 1220", "... 01220", or "... 01220-1234"
+    // 2) Fallback: pad ZIP already embedded in the address (e.g., "MA 1810" -> "MA 01810")
     final m = RegExp(r'(\d{4,5})(-\d{4})?\s*$').firstMatch(addr);
     if (m == null) return addr;
 
     final base = (m.group(1) ?? '').trim(); // 4 or 5 digits
-    final plus4 = (m.group(2) ?? '');       // "-1234" or ""
-    final padded = base.padLeft(5, '0');    // 1220 -> 01220
+    final plus4 = (m.group(2) ?? '');       // optional "-1234"
+    final padded = base.padLeft(5, '0');    // 1810 -> 01810
 
-    // Replace just the trailing zip portion with the padded version
     final cleaned = addr.substring(0, m.start).trimRight();
     return '$cleaned $padded$plus4';
   }
-  
+
   Future<List<Map<String, dynamic>>> _loadHouses() async {
     final data = await _supabase.rpc(
       'get_houses_for_street',
