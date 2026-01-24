@@ -64,7 +64,8 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
     final dLat = toRad(lat2 - lat1);
     final dLon = toRad(lon2 - lon1);
 
-    final a = (Math.sin(dLat / 2) * Math.sin(dLat / 2)) +
+    final a =
+        (Math.sin(dLat / 2) * Math.sin(dLat / 2)) +
         Math.cos(toRad(lat1)) *
             Math.cos(toRad(lat2)) *
             (Math.sin(dLon / 2) * Math.sin(dLon / 2));
@@ -73,13 +74,16 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
     return earthRadiusM * c;
   }
 
-  Future<({
-    double? lat,
-    double? lon,
-    double? accuracyM,
-    String geoSource,
-    String? geoError,
-  })> _getGeoFixNonBlocking() async {
+  Future<
+    ({
+      double? lat,
+      double? lon,
+      double? accuracyM,
+      String geoSource,
+      String? geoError,
+    })
+  >
+  _getGeoFixNonBlocking() async {
     try {
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -149,9 +153,9 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
     final user = _supabase.auth.currentUser;
 
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Not signed in.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Not signed in.')));
       return;
     }
 
@@ -160,6 +164,20 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
     try {
       final now = DateTime.now().toUtc();
       final userIdentifier = user.email ?? user.id;
+
+      final fix = await _getGeoFixNonBlocking();
+
+      // Block logging if location is unavailable
+      if (fix.lat == null || fix.lon == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location required: Please enable location sharing to log knocks.',
+            ),
+          ),
+        );
+        return;
+      }
 
       // 1) Update the snapshot on houses
       await _supabase
@@ -181,16 +199,10 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
       final houseLat = (houseCoord['lat'] as num?)?.toDouble();
       final houseLon = (houseCoord['lon'] as num?)?.toDouble();
 
-      // Get user GPS
-      final fix = await _getGeoFixNonBlocking();
-
       double? distanceM;
       String? geoError = fix.geoError;
 
-      if (fix.lat != null &&
-          fix.lon != null &&
-          houseLat != null &&
-          houseLon != null) {
+      if (houseLat != null && houseLon != null) {
         distanceM = _haversineMeters(fix.lat!, fix.lon!, houseLat, houseLon);
       } else {
         if (geoError == null && (houseLat == null || houseLon == null)) {
@@ -221,13 +233,13 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
         _eventsFuture = _loadEvents();
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Status updated.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Status updated.')));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating house: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error updating house: $e')));
     } finally {
       if (mounted) setState(() => _isUpdating = false);
     }
@@ -296,7 +308,9 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
               final event = events[index];
               final type = (event['event_type'] as String?) ?? '';
               final email = (event['user_email'] as String?) ?? 'Unknown user';
-              final createdAt = _formatTimestamp(event['created_at'] as String?);
+              final createdAt = _formatTimestamp(
+                event['created_at'] as String?,
+              );
 
               String label;
               Color dotColor;
@@ -320,10 +334,7 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
               }
 
               return ListTile(
-                leading: CircleAvatar(
-                  radius: 6,
-                  backgroundColor: dotColor,
-                ),
+                leading: CircleAvatar(radius: 6, backgroundColor: dotColor),
                 title: Text(label),
                 subtitle: Text('$email • $createdAt'),
               );
@@ -340,7 +351,8 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
       future: _houseFuture,
       builder: (context, snapshot) {
         final loading =
-            snapshot.connectionState == ConnectionState.waiting || !snapshot.hasData;
+            snapshot.connectionState == ConnectionState.waiting ||
+            !snapshot.hasData;
 
         // While loading, show a scaffold with raw address (safe fallback)
         if (loading) {
@@ -368,9 +380,7 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
         final signedUp = house['signed_up'] == true;
 
         return Scaffold(
-          appBar: AppBar(
-            title: Text(displayAddress),
-          ),
+          appBar: AppBar(title: Text(displayAddress)),
           body: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -386,7 +396,7 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text('${widget.street}, ${widget.town}'),
-              
+
                 const SizedBox(height: 16),
 
                 // Current status snapshot
@@ -451,10 +461,7 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
                 // Event history section
                 const Text(
                   'Recent activity',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),
                 _buildEventHistory(),
