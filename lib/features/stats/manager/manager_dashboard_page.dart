@@ -2005,6 +2005,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   columns: const [
                     DataColumn(label: Text('Date')),
                     DataColumn(label: Text('Canvasser')),
+                    DataColumn(label: Text('Map')),
                     DataColumn(label: Text('Paid Time (hrs)')),
                     DataColumn(label: Text('Valid Buckets')),
                     DataColumn(label: Text('Doors Knocked')),
@@ -2013,7 +2014,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                     DataColumn(label: Text('Answer Rate')),
                     DataColumn(label: Text('Conversion Rate')),
                     DataColumn(label: Text('Knocks / Paid Hr')),
-                    DataColumn(label: Text('Map')),
                   ],
                   rows: _rows.map((r) {
                     return DataRow(
@@ -2021,6 +2021,14 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                       cells: [
                         DataCell(Text(_num(r['work_date_ny']))),
                         DataCell(Text(_num(r['user_email']))),
+                        DataCell(
+                          IconButton(
+                            icon: const Icon(Icons.map, size: 18),
+                            tooltip: 'View route map',
+                            onPressed: () => _showRouteMapDialog(r),
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
                         DataCell(
                           Text(
                             _numFixed(r['billable_hours']),
@@ -2037,14 +2045,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                         DataCell(Text(_pct(r['signup_rate']))),
                         DataCell(
                           Text(_numFixed(r['knocks_per_billable_hour'])),
-                        ),
-                        DataCell(
-                          IconButton(
-                            icon: const Icon(Icons.map, size: 18),
-                            tooltip: 'View route map',
-                            onPressed: () => _showRouteMapDialog(r),
-                            color: Colors.blue.shade700,
-                          ),
                         ),
                       ],
                     );
