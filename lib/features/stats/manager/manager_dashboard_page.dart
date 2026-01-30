@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../canvassing/towns_page.dart';
 import 'bucket_drilldown_page.dart';
+import 'route_map_dialog.dart';
 
 class ManagerDashboardPage extends StatefulWidget {
   const ManagerDashboardPage({super.key});
@@ -1413,6 +1414,20 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     );
   }
 
+  void _showRouteMapDialog(Map<String, dynamic> row) {
+    showDialog(
+      context: context,
+      builder: (context) => RouteMapDialog(
+        userId: row['user_id'].toString(),
+        userEmail: row['user_email'].toString(),
+        workDateNy: row['work_date_ny'].toString(),
+        startTime: _startTime,
+        endTime: _endTime,
+        selectedOutcomes: _selectedOutcomes,
+      ),
+    );
+  }
+
   void _showInsightsModal() {
     showDialog(
       context: context,
@@ -1998,6 +2013,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                     DataColumn(label: Text('Answer Rate')),
                     DataColumn(label: Text('Conversion Rate')),
                     DataColumn(label: Text('Knocks / Paid Hr')),
+                    DataColumn(label: Text('Map')),
                   ],
                   rows: _rows.map((r) {
                     return DataRow(
@@ -2021,6 +2037,14 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                         DataCell(Text(_pct(r['signup_rate']))),
                         DataCell(
                           Text(_numFixed(r['knocks_per_billable_hour'])),
+                        ),
+                        DataCell(
+                          IconButton(
+                            icon: const Icon(Icons.map, size: 18),
+                            tooltip: 'View route map',
+                            onPressed: () => _showRouteMapDialog(r),
+                            color: Colors.blue.shade700,
+                          ),
                         ),
                       ],
                     );
