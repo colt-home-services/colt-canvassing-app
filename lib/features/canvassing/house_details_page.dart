@@ -86,27 +86,19 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
   _getGeoFixNonBlocking() async {
     try {
       var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         permission = await Geolocator.requestPermission();
       }
 
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         return (
           lat: null,
           lon: null,
           accuracyM: null,
           geoSource: 'none',
           geoError: 'permission_denied',
-        );
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        return (
-          lat: null,
-          lon: null,
-          accuracyM: null,
-          geoSource: 'none',
-          geoError: 'permission_denied_forever',
         );
       }
 
@@ -123,7 +115,7 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
 
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 6),
+        timeLimit: const Duration(seconds: 15),
       );
 
       return (
