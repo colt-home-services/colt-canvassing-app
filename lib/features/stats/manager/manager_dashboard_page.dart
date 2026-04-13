@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../canvassing/towns_page.dart';
+import '../../shifts/manager_shifts_page.dart';
 import 'bucket_drilldown_page.dart';
 import 'route_map_dialog.dart';
 
@@ -1936,6 +1937,19 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   label: const Text('Insights'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.blue.shade700,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ManagerShiftsPage(initialRange: _range),
+                    ));
+                  },
+                  icon: const Icon(Icons.access_time),
+                  label: const Text('Shifts'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.green.shade700,
                   ),
                 ),
                 const SizedBox(width: 12),

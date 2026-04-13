@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/routing/role_gate_page.dart';
 import '../../core/data/towns_cache.dart';
+import '../shifts/clock_card.dart';
 
 
 import 'streets_page.dart';
@@ -172,6 +173,10 @@ class _TownsPageState extends State<TownsPage> {
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: const ClockCard(),
+          ),
           // Search bar
           Container(
             color: background,
