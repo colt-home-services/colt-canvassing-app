@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../stats/manager/bucket_drilldown_page.dart';
-
 class ManagerShiftsSection extends StatefulWidget {
   const ManagerShiftsSection({
     super.key,
@@ -82,25 +80,6 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
         _loading = false;
       });
     }
-  }
-
-  void _openHouses(
-      Map<String, dynamic> row, DateTime clockIn, DateTime? clockOut) {
-    final userId = (row['user_id'] ?? '').toString();
-    final email = (row['user_email'] ?? '').toString();
-    if (userId.isEmpty) return;
-    final localIn = clockIn.toLocal();
-    final workDate =
-        '${localIn.year.toString().padLeft(4, '0')}-${localIn.month.toString().padLeft(2, '0')}-${localIn.day.toString().padLeft(2, '0')}';
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => BucketDrilldownPage(
-        userId: userId,
-        userEmail: email,
-        workDateNy: workDate,
-        windowStart: clockIn,
-        windowEnd: clockOut ?? DateTime.now(),
-      ),
-    ));
   }
 
   Future<void> _openEditor(Map<String, dynamic> row) async {
@@ -214,7 +193,6 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                     DataColumn(label: Text('Clock out')),
                     DataColumn(label: Text('Duration')),
                     DataColumn(label: Text('Edited')),
-                    DataColumn(label: Text('Houses')),
                     DataColumn(label: Text('')),
                   ],
                   rows: _rows.map((r) {
@@ -248,11 +226,6 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                         color:
                             edited ? Colors.orange.shade700 : Colors.black26,
                         size: 18,
-                      )),
-                      DataCell(IconButton(
-                        icon: const Icon(Icons.home_work_outlined, size: 18),
-                        tooltip: 'View houses (15-min buckets)',
-                        onPressed: () => _openHouses(r, clockIn, clockOut),
                       )),
                       DataCell(IconButton(
                         icon: const Icon(Icons.edit, size: 18),
