@@ -8,11 +8,7 @@ import '../../core/theme/chs_colors.dart';
 import 'shift_service.dart';
 
 class ClockCard extends StatefulWidget {
-  const ClockCard({super.key, this.compact = false});
-
-  /// Compact mode: a slimmer single-row layout suited for pages that already
-  /// have their own primary content (e.g. mounted at the top of TownsPage).
-  final bool compact;
+  const ClockCard({super.key});
 
   @override
   State<ClockCard> createState() => _ClockCardState();

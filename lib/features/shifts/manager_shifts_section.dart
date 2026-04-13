@@ -109,17 +109,6 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
 
   @override
   Widget build(BuildContext context) {
-    final totalSeconds = _rows.fold<int>(
-      0,
-      (s, r) => s + ((r['duration_seconds'] ?? 0) as num).toInt(),
-    );
-    final byCanvasser = <String, int>{};
-    for (final r in _rows) {
-      final email = (r['user_email'] ?? '—').toString();
-      byCanvasser[email] =
-          (byCanvasser[email] ?? 0) + ((r['duration_seconds'] ?? 0) as num).toInt();
-    }
-
     return Card(
       elevation: 0,
       color: Colors.blue.shade50,
@@ -152,14 +141,6 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                   onPressed: _loading ? null : _fetch,
                 ),
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Total paid: ${_fmtDuration(totalSeconds)} across ${_rows.length} shift${_rows.length == 1 ? '' : 's'}'
-              '${byCanvasser.length > 1 ? ' · ${byCanvasser.length} canvassers' : ''}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.black54,
-                  ),
             ),
             const SizedBox(height: 8),
             if (_error != null)
