@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/routing/role_gate_page.dart';
+import '../../core/data/towns_cache.dart';
 
 
 import 'streets_page.dart';
@@ -29,12 +30,62 @@ class _TownsPageState extends State<TownsPage> {
   @override
   void initState() {
     super.initState();
-    _loadAllTowns();
+    _bootstrap();
 
     _searchController.addListener(() {
       _debounce?.cancel();
       _debounce = Timer(const Duration(milliseconds: 120), _applyFilter);
     });
+  }
+
+  Future<void> _bootstrap() async {
+    final cached = await TownsCache.read();
+    if (cached != null && mounted) {
+      setState(() {
+        _allTowns = cached;
+        _filteredTowns = cached;
+        _isLoading = false;
+      });
+    }
+    _refreshInBackground();
+  }
+
+  Future<void> _refreshInBackground() async {
+    try {
+      final towns = await TownsCache.refresh(_supabase);
+      if (!mounted) return;
+      if (_listsEqual(towns, _allTowns)) return;
+      setState(() {
+        _allTowns = towns;
+        _errorMessage = null;
+        _isLoading = false;
+        _applyFilterSync();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if (_allTowns.isNotEmpty) return; // keep showing cached list silently
+      setState(() {
+        _errorMessage = e is PostgrestException && e.code == '57014'
+            ? 'Loading towns took too long. Tap Retry.'
+            : e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  bool _listsEqual(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  void _applyFilterSync() {
+    final q = _searchController.text.trim().toUpperCase();
+    _filteredTowns = q.isEmpty
+        ? List.from(_allTowns)
+        : _allTowns.where((t) => t.startsWith(q)).toList();
   }
 
   @override
@@ -45,52 +96,15 @@ class _TownsPageState extends State<TownsPage> {
   }
 
   Future<void> _loadAllTowns() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      // ✅ One-time load (351 towns) - fast and avoids per-keystroke timeouts
-      final data = await _supabase.rpc('get_unique_towns');
-
-      final raw = data as List<dynamic>;
-
-      // get_unique_towns returns TABLE(town text) => [{'town': 'X'}, ...]
-      // Normalize + dedupe defensively (fixes double BOSTON due to whitespace/case variants)
-      final towns = raw
-          .map((e) {
-            if (e is Map && e['town'] is String) return e['town'] as String;
-            if (e is String) return e;
-            return e.toString();
-          })
-          .map((t) => t.trim())
-          .where((t) => t.isNotEmpty)
-          .map((t) => t.toUpperCase())
-          .toSet()
-          .toList()
-        ..sort();
-
+    if (_allTowns.isEmpty) {
       setState(() {
-        _allTowns = towns;
-        _filteredTowns = towns;
-        _isLoading = false;
+        _isLoading = true;
+        _errorMessage = null;
       });
-    } on PostgrestException catch (e) {
-      final isTimeout = e.code == '57014';
-
-      setState(() {
-        _errorMessage = isTimeout
-            ? 'Loading towns took too long. Tap Retry.'
-            : (e.message.isNotEmpty ? e.message : e.toString());
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
+    } else {
+      setState(() => _errorMessage = null);
     }
+    await _refreshInBackground();
   }
 
   void _applyFilter() {
