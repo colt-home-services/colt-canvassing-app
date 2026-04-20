@@ -185,19 +185,34 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                         : DateTime.parse(clockOutRaw as String);
                     final seconds = (r['duration_seconds'] ?? 0) as num;
                     final edited = r['edited_at'] != null;
+                    final autoClosed = (r['auto_closed'] as bool?) ?? false;
                     return DataRow(cells: [
                       DataCell(Text((r['user_email'] ?? '—').toString())),
                       DataCell(Text(_fmtDateTime(clockIn))),
-                      DataCell(Text(
-                        isOpen ? '— (open)' : _fmtDateTime(clockOut!),
-                        style: TextStyle(
-                          color: isOpen
-                              ? Colors.orange.shade800
-                              : Colors.black87,
-                          fontWeight: isOpen
-                              ? FontWeight.w700
-                              : FontWeight.w400,
-                        ),
+                      DataCell(Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            isOpen ? '— (open)' : _fmtDateTime(clockOut!),
+                            style: TextStyle(
+                              color: isOpen
+                                  ? Colors.orange.shade800
+                                  : Colors.black87,
+                              fontWeight: isOpen
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
+                            ),
+                          ),
+                          if (autoClosed) ...[
+                            const SizedBox(width: 6),
+                            Tooltip(
+                              message:
+                                  'Auto-closed at 10 PM / 12h cutoff — review',
+                              child: Icon(Icons.schedule,
+                                  size: 16, color: Colors.red.shade700),
+                            ),
+                          ],
+                        ],
                       )),
                       DataCell(Text(_fmtDuration(seconds.toInt()),
                           style:
@@ -301,6 +316,7 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final email = (widget.row['user_email'] ?? '').toString();
+    final autoClosed = (widget.row['auto_closed'] as bool?) ?? false;
     return AlertDialog(
       title: const Text('Override shift'),
       content: ConstrainedBox(
@@ -314,6 +330,34 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Text(email,
                     style: const TextStyle(fontWeight: FontWeight.w600)),
+              ),
+            if (autoClosed)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  border: Border.all(color: Colors.red.shade200),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.schedule,
+                        size: 18, color: Colors.red.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Auto-closed at the 10 PM / 12h cutoff. '
+                        'Adjust the clock-out time if the canvasser worked longer.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.red.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             _FieldRow(
               label: 'Clock in',

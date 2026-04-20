@@ -5,12 +5,14 @@ class Shift {
   final String userId;
   final DateTime clockInAt;
   final DateTime? clockOutAt;
+  final bool autoClosed;
 
   const Shift({
     required this.id,
     required this.userId,
     required this.clockInAt,
     required this.clockOutAt,
+    required this.autoClosed,
   });
 
   bool get isOpen => clockOutAt == null;
@@ -25,6 +27,7 @@ class Shift {
         clockOutAt: m['clock_out_at'] == null
             ? null
             : DateTime.parse(m['clock_out_at'] as String).toLocal(),
+        autoClosed: (m['auto_closed'] as bool?) ?? false,
       );
 }
 
