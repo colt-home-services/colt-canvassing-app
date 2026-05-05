@@ -9,11 +9,7 @@ class HousesPage extends StatefulWidget {
   final String town;
   final String street;
 
-  const HousesPage({
-    super.key,
-    required this.town,
-    required this.street,
-  });
+  const HousesPage({super.key, required this.town, required this.street});
 
   @override
   State<HousesPage> createState() => _HousesPageState();
@@ -35,8 +31,8 @@ class _HousesPageState extends State<HousesPage> {
     final addr = (house['address'] ?? '').toString().trim();
 
     // 1) Prefer ZIP from the row if it exists
-    final rawZip =
-        (house['zip'] ?? house['zipcode'] ?? house['postal_code'])?.toString();
+    final rawZip = (house['zip'] ?? house['zipcode'] ?? house['postal_code'])
+        ?.toString();
     final zFromRow = formatZip(rawZip);
 
     if (zFromRow.isNotEmpty) {
@@ -50,29 +46,43 @@ class _HousesPageState extends State<HousesPage> {
     if (m == null) return addr;
 
     final base = (m.group(1) ?? '').trim(); // 4 or 5 digits
-    final plus4 = (m.group(2) ?? '');       // optional "-1234"
-    final padded = base.padLeft(5, '0');    // 1810 -> 01810
+    final plus4 = (m.group(2) ?? ''); // optional "-1234"
+    final padded = base.padLeft(5, '0'); // 1810 -> 01810
 
     final cleaned = addr.substring(0, m.start).trimRight();
     return '$cleaned $padded$plus4';
   }
 
+  int? _leadingHouseNumber(String address) {
+    final match = RegExp(r'^\s*(\d+)').firstMatch(address);
+    if (match == null) return null;
+    return int.tryParse(match.group(1)!);
+  }
+
+  int _compareHouseAddresses(String a, String b) {
+    final aNumber = _leadingHouseNumber(a);
+    final bNumber = _leadingHouseNumber(b);
+
+    if (aNumber != null && bNumber != null && aNumber != bNumber) {
+      return aNumber.compareTo(bNumber);
+    }
+
+    return a.toLowerCase().compareTo(b.toLowerCase());
+  }
+
   Future<List<Map<String, dynamic>>> _loadHouses() async {
     final data = await _supabase.rpc(
       'get_houses_for_street',
-      params: {
-        'town_name': widget.town,
-        'street_name': widget.street,
-      },
+      params: {'town_name': widget.town, 'street_name': widget.street},
     );
 
     final houses = (data as List<dynamic>).cast<Map<String, dynamic>>();
 
-    // Sort by DISPLAY address for stable, predictable order
+    // Sort by leading house number first, then display address for suffixes.
     houses.sort((a, b) {
       final aDisp = _displayAddress(a);
       final bDisp = _displayAddress(b);
-      return aDisp.toLowerCase().compareTo(bDisp.toLowerCase());
+      return _compareHouseAddresses(aDisp, bDisp);
     });
 
     debugPrint(
@@ -113,10 +123,7 @@ class _HousesPageState extends State<HousesPage> {
       appBar: AppBar(
         title: Text(
           title,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -148,23 +155,15 @@ class _HousesPageState extends State<HousesPage> {
                 ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(32),
-                  borderSide: const BorderSide(
-                    color: kChsPrimary,
-                    width: 1.5,
-                  ),
+                  borderSide: const BorderSide(color: kChsPrimary, width: 1.5),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(32),
-                  borderSide: const BorderSide(
-                    color: Color(0xFFE0E3E7),
-                  ),
+                  borderSide: const BorderSide(color: Color(0xFFE0E3E7)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(32),
-                  borderSide: const BorderSide(
-                    color: kChsPrimary,
-                    width: 1.5,
-                  ),
+                  borderSide: const BorderSide(color: kChsPrimary, width: 1.5),
                 ),
               ),
             ),
@@ -210,10 +209,8 @@ class _HousesPageState extends State<HousesPage> {
 
                 return ListView.separated(
                   itemCount: houses.length,
-                  separatorBuilder: (_, __) => const Divider(
-                    height: 1,
-                    color: Color(0xFFE0E3E7),
-                  ),
+                  separatorBuilder: (_, _) =>
+                      const Divider(height: 1, color: Color(0xFFE0E3E7)),
                   itemBuilder: (context, index) {
                     final house = houses[index];
 
@@ -247,7 +244,7 @@ class _HousesPageState extends State<HousesPage> {
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.1),
+                                  color: statusColor.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
