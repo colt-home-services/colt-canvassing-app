@@ -19,6 +19,7 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
   final _supabase = Supabase.instance.client;
 
   List<Map<String, dynamic>> _rows = [];
+  Set<String> _hadKnocksKeys = {}; // '$userId|$workDateNy'
   bool _loading = false;
   String? _error;
 
@@ -64,13 +65,36 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
         query = query.inFilter('user_email', widget.selectedCanvasserEmails);
       }
 
-      final raw = await query.order('clock_in_at', ascending: false);
+      String ymd(DateTime d) =>
+          '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      final startYmd = ymd(widget.range.start);
+      final endYmd = ymd(widget.range.end);
+
+      final results = await Future.wait([
+        query.order('clock_in_at', ascending: false),
+        _supabase
+            .from('v_user_knock_dates')
+            .select('user_id, work_date_ny')
+            .gte('work_date_ny', startYmd)
+            .lte('work_date_ny', endYmd),
+      ]);
+
+      final shiftRows = (results[0] as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      final knockRows = (results[1] as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+
+      final hadKnocks = <String>{
+        for (final r in knockRows)
+          '${r['user_id']}|${r['work_date_ny']}',
+      };
 
       if (!mounted) return;
       setState(() {
-        _rows = (raw as List)
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        _rows = shiftRows;
+        _hadKnocksKeys = hadKnocks;
         _loading = false;
       });
     } catch (e) {
@@ -186,24 +210,58 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                     final seconds = (r['duration_seconds'] ?? 0) as num;
                     final edited = r['edited_at'] != null;
                     final autoClosed = (r['auto_closed'] as bool?) ?? false;
-                    return DataRow(cells: [
-                      DataCell(Text((r['user_email'] ?? '—').toString())),
-                      DataCell(Text(_fmtDateTime(clockIn))),
+                    final disallowed = r['disallowed_at'] != null;
+                    final strike = disallowed
+                        ? TextDecoration.lineThrough
+                        : TextDecoration.none;
+                    final mutedColor =
+                        disallowed ? Colors.black45 : Colors.black87;
+                    final userId = (r['user_id'] ?? '').toString();
+                    final workDateNy = (r['work_date_ny'] ?? '').toString();
+                    final knockKey = '$userId|$workDateNy';
+                    final hasComparableDate =
+                        userId.isNotEmpty && workDateNy.isNotEmpty;
+                    final knockedThatDay = !disallowed &&
+                        hasComparableDate &&
+                        _hadKnocksKeys.contains(knockKey);
+                    return DataRow(
+                      color: knockedThatDay
+                          ? WidgetStateProperty.resolveWith(
+                              (_) => Colors.red.shade50)
+                          : null,
+                      cells: [
+                      DataCell(Text(
+                        (r['user_email'] ?? '—').toString(),
+                        style: TextStyle(
+                          decoration: strike,
+                          color: mutedColor,
+                        ),
+                      )),
+                      DataCell(Text(
+                        _fmtDateTime(clockIn),
+                        style: TextStyle(
+                          decoration: strike,
+                          color: mutedColor,
+                        ),
+                      )),
                       DataCell(Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             isOpen ? '— (open)' : _fmtDateTime(clockOut!),
                             style: TextStyle(
-                              color: isOpen
-                                  ? Colors.orange.shade800
-                                  : Colors.black87,
+                              color: disallowed
+                                  ? Colors.black45
+                                  : (isOpen
+                                      ? Colors.orange.shade800
+                                      : Colors.black87),
                               fontWeight: isOpen
                                   ? FontWeight.w700
                                   : FontWeight.w400,
+                              decoration: strike,
                             ),
                           ),
-                          if (autoClosed) ...[
+                          if (autoClosed && !disallowed) ...[
                             const SizedBox(width: 6),
                             Tooltip(
                               message:
@@ -212,11 +270,36 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                                   size: 16, color: Colors.red.shade700),
                             ),
                           ],
+                          if (disallowed) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade300,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'VOIDED',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black54,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       )),
-                      DataCell(Text(_fmtDuration(seconds.toInt()),
-                          style:
-                              const TextStyle(fontWeight: FontWeight.w600))),
+                      DataCell(Text(
+                        disallowed ? '0h 0m' : _fmtDuration(seconds.toInt()),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: mutedColor,
+                          decoration: strike,
+                        ),
+                      )),
                       DataCell(Icon(
                         edited ? Icons.edit_note : Icons.remove,
                         color:
@@ -251,6 +334,7 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
   late DateTime _clockIn;
   DateTime? _clockOut;
   bool _saving = false;
+  bool _disallowed = false;
   String? _error;
 
   @override
@@ -259,6 +343,29 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
     _clockIn = DateTime.parse(widget.row['clock_in_at']).toLocal();
     final co = widget.row['clock_out_at'];
     _clockOut = co == null ? null : DateTime.parse(co as String).toLocal();
+    _disallowed = widget.row['disallowed_at'] != null;
+  }
+
+  Future<void> _toggleDisallow() async {
+    final next = !_disallowed;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await Supabase.instance.client.rpc('manager_disallow_shift', params: {
+        'p_shift_id': widget.row['id'],
+        'p_disallow': next,
+      });
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _saving = false;
+      });
+    }
   }
 
   Future<DateTime?> _pick(DateTime initial) async {
@@ -331,7 +438,34 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
                 child: Text(email,
                     style: const TextStyle(fontWeight: FontWeight.w600)),
               ),
-            if (autoClosed)
+            if (_disallowed)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  border: Border.all(color: Colors.grey.shade400),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.block,
+                        size: 18, color: Colors.grey.shade700),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This shift is disallowed and excluded from totals.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.grey.shade800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (autoClosed && !_disallowed)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(10),
@@ -395,6 +529,26 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
         ),
       ),
       actions: [
+        OutlinedButton.icon(
+          onPressed: _saving ? null : _toggleDisallow,
+          icon: Icon(
+            _disallowed ? Icons.refresh : Icons.block,
+            size: 16,
+            color: _disallowed ? Colors.black87 : Colors.red.shade700,
+          ),
+          label: Text(
+            _disallowed ? 'Re-allow shift' : 'Disallow shift',
+            style: TextStyle(
+              color: _disallowed ? Colors.black87 : Colors.red.shade700,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: BorderSide(
+              color: _disallowed ? Colors.black26 : Colors.red.shade300,
+            ),
+          ),
+        ),
         TextButton(
           onPressed: _saving ? null : () => Navigator.of(context).pop(false),
           child: const Text('Cancel'),

@@ -34,6 +34,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   Map<String, dynamic> _kpiTotals = {};
   Map<String, dynamic> _kpiTotalsAllData = {}; // For showing all data initially
   List<Map<String, dynamic>> _allRows = []; // Unfiltered data
+  List<Map<String, dynamic>> _shiftRows = []; // Raw v_shifts_detail rows in range
   List<Map<String, dynamic>> _leaderboardData = [];
   String _leaderboardSortBy = 'answers_per_hour';
   List<Map<String, dynamic>> _hourlyPerformance = [];
@@ -111,6 +112,27 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
       // Store unfiltered data
       _allRows = allRows;
+
+      // Fetch shift rows for the same date range (used for Total Shift Hours KPI)
+      final shiftStartUtc = DateTime(
+        _range!.start.year,
+        _range!.start.month,
+        _range!.start.day,
+      ).toUtc().toIso8601String();
+      final shiftEndUtc = DateTime(
+        _range!.end.year,
+        _range!.end.month,
+        _range!.end.day,
+      ).add(const Duration(days: 1)).toUtc().toIso8601String();
+
+      _shiftRows = ((await _supabase
+              .from('v_shifts_detail')
+              .select('user_email, duration_seconds, clock_in_at')
+              .gte('clock_in_at', shiftStartUtc)
+              .lt('clock_in_at', shiftEndUtc)
+              .filter('disallowed_at', 'is', null)) as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
 
       // Apply canvasser filter
       var filteredRows = allRows;
@@ -365,6 +387,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     List<Map<String, dynamic>> rows, {
     bool isAllData = false,
   }) {
+    final shiftSeconds = _sumShiftSeconds(isAllData: isAllData);
+
     if (rows.isEmpty) {
       final emptyData = {
         'knocks': 0,
@@ -374,6 +398,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         'answer_rate': 0.0,
         'knocks_per_hour': 0.0,
         'answers_per_hour': 0.0,
+        'shift_seconds': shiftSeconds,
       };
       if (isAllData) {
         _kpiTotalsAllData = emptyData;
@@ -409,6 +434,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       'answer_rate': answerRate,
       'knocks_per_hour': knocksPerHour,
       'answers_per_hour': answersPerHour,
+      'shift_seconds': shiftSeconds,
     };
 
     if (isAllData) {
@@ -416,6 +442,26 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     } else {
       _kpiTotals = data;
     }
+  }
+
+  /// Sums duration_seconds across `_shiftRows`. When `isAllData` is false
+  /// and a canvasser filter is active, sums only matching rows.
+  num _sumShiftSeconds({required bool isAllData}) {
+    final useFilter = !isAllData && _selectedCanvassers.isNotEmpty;
+    return _shiftRows.fold<num>(0, (s, r) {
+      if (useFilter &&
+          !_selectedCanvassers.contains((r['user_email'] ?? '').toString())) {
+        return s;
+      }
+      return s + _toNum(r['duration_seconds']);
+    });
+  }
+
+  String _fmtShiftHours(num seconds) {
+    final total = seconds.toInt();
+    final h = total ~/ 3600;
+    final m = ((total % 3600) / 60).round();
+    return '${h}h ${m}m';
   }
 
   void _buildLeaderboardData(List<Map<String, dynamic>> rows) {
@@ -1111,6 +1157,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   kpiData['answers_per_hour']?.toStringAsFixed(1) ?? '0',
                   Icons.schedule,
                   highlighted: true,
+                ),
+                _buildKPIMetric(
+                  'Shift Hours',
+                  _fmtShiftHours(_toNum(kpiData['shift_seconds'])),
+                  Icons.access_time,
                 ),
               ],
             ),
@@ -1941,10 +1992,12 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(MaterialPageRoute(
+                  onPressed: () async {
+                    await Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => ManagerShiftsPage(initialRange: _range),
                     ));
+                    if (!mounted) return;
+                    _fetch();
                   },
                   icon: const Icon(Icons.access_time),
                   label: const Text('Shifts'),

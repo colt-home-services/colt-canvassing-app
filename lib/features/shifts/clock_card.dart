@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/chs_colors.dart';
+import 'canvasser_shifts_history_page.dart';
 import 'shift_service.dart';
 
 class ClockCard extends StatefulWidget {
@@ -224,31 +225,73 @@ class _ClockCardState extends State<ClockCard> {
     final shiftCount = _today.length;
 
     return _cardShell(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _statusDot(isClockedIn),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _statusDot(isClockedIn),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      isClockedIn ? 'On the clock' : 'Off the clock',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: kChsTextSecondary,
-                        letterSpacing: 0.2,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          isClockedIn ? 'On the clock' : 'Off the clock',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: kChsTextSecondary,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        if (isClockedIn) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '· since ${_fmtTime(active.clockInAt)}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: kChsTextSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (isClockedIn) ...[
-                      const SizedBox(width: 8),
+                    const SizedBox(height: 2),
+                    if (isClockedIn)
+                      ValueListenableBuilder<Duration>(
+                        valueListenable: _elapsed,
+                        builder: (_, d, __) => Text(
+                          _fmtDuration(d),
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: kChsTextPrimary,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                            height: 1.1,
+                          ),
+                        ),
+                      )
+                    else
                       Text(
-                        '· since ${_fmtTime(active.clockInAt)}',
+                        shiftCount == 0
+                            ? 'Tap to start your shift'
+                            : 'Today: ${_fmtTotal(todayTotal)} · $shiftCount shift${shiftCount == 1 ? '' : 's'}',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: kChsTextPrimary,
+                        ),
+                      ),
+                    if (isClockedIn && shiftCount > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Today: ${_fmtTotal(todayTotal)} · $shiftCount shift${shiftCount == 1 ? '' : 's'}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: kChsTextSecondary,
@@ -257,50 +300,83 @@ class _ClockCardState extends State<ClockCard> {
                     ],
                   ],
                 ),
-                const SizedBox(height: 2),
-                if (isClockedIn)
-                  ValueListenableBuilder<Duration>(
-                    valueListenable: _elapsed,
-                    builder: (_, d, __) => Text(
-                      _fmtDuration(d),
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: kChsTextPrimary,
-                        fontFeatures: [FontFeature.tabularFigures()],
-                        height: 1.1,
-                      ),
-                    ),
-                  )
-                else
-                  Text(
-                    shiftCount == 0
-                        ? 'Tap to start your shift'
-                        : 'Today: ${_fmtTotal(todayTotal)} · $shiftCount shift${shiftCount == 1 ? '' : 's'}',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: kChsTextPrimary,
-                    ),
-                  ),
-                if (isClockedIn && shiftCount > 0) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Today: ${_fmtTotal(todayTotal)} · $shiftCount shift${shiftCount == 1 ? '' : 's'}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: kChsTextSecondary,
-                    ),
-                  ),
-                ],
-              ],
+              ),
+              const SizedBox(width: 10),
+              _actionButton(isClockedIn),
+            ],
+          ),
+          if (shiftCount > 0) ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: Color(0xFFEEF1F5)),
+            const SizedBox(height: 8),
+            for (final s in _today) _todayShiftRow(s),
+          ],
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _openHistory,
+              icon: const Icon(Icons.history, size: 16),
+              label: const Text('View history'),
+              style: TextButton.styleFrom(
+                foregroundColor: kChsPrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: 10),
-          _actionButton(isClockedIn),
         ],
       ),
     );
+  }
+
+  Widget _todayShiftRow(Shift s) {
+    final isOpen = s.isOpen;
+    final timesText = isOpen
+        ? '${_fmtTime(s.clockInAt)} → still open'
+        : '${_fmtTime(s.clockInAt)} → ${_fmtTime(s.clockOutAt!)}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            isOpen ? Icons.play_circle_fill : Icons.check_circle,
+            size: 14,
+            color: isOpen ? const Color(0xFF22C55E) : kChsTextSecondary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              timesText,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: kChsTextPrimary,
+              ),
+            ),
+          ),
+          Text(
+            _fmtTotal(s.duration),
+            style: const TextStyle(
+              fontSize: 12,
+              color: kChsTextSecondary,
+              fontWeight: FontWeight.w600,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openHistory() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const CanvasserShiftsHistoryPage(),
+    ));
   }
 
   Widget _cardShell({required Widget child}) {
