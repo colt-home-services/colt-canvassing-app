@@ -16,8 +16,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   final _supabase = Supabase.instance.client;
 
   DateTimeRange? _range;
-  List<String> _selectedCanvassers = [];
-  List<String> _selectedZipCodes = [];
+  final List<String> _selectedCanvassers = [];
+  final List<String> _selectedZipCodes = [];
   TimeOfDay? _startTime;
   TimeOfDay? _endTime;
   Set<String> _selectedOutcomes = {'knocked', 'answered', 'signed_up'};
@@ -34,7 +34,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   Map<String, dynamic> _kpiTotals = {};
   Map<String, dynamic> _kpiTotalsAllData = {}; // For showing all data initially
   List<Map<String, dynamic>> _allRows = []; // Unfiltered data
-  List<Map<String, dynamic>> _shiftRows = []; // Raw v_shifts_detail rows in range
+  List<Map<String, dynamic>> _shiftRows =
+      []; // Raw v_shifts_detail rows in range
+  Set<String> _knockDateKeys = {}; // '$userId|$workDateNy'
   List<Map<String, dynamic>> _leaderboardData = [];
   String _leaderboardSortBy = 'answers_per_hour';
   List<Map<String, dynamic>> _hourlyPerformance = [];
@@ -125,14 +127,32 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         _range!.end.day,
       ).add(const Duration(days: 1)).toUtc().toIso8601String();
 
-      _shiftRows = ((await _supabase
-              .from('v_shifts_detail')
-              .select('user_email, duration_seconds, clock_in_at')
-              .gte('clock_in_at', shiftStartUtc)
-              .lt('clock_in_at', shiftEndUtc)
-              .filter('disallowed_at', 'is', null)) as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+      _shiftRows =
+          ((await _supabase
+                      .from('v_shifts_detail')
+                      .select(
+                        'user_id, user_email, work_date_ny, duration_seconds, clock_in_at',
+                      )
+                      .gte('clock_in_at', shiftStartUtc)
+                      .lt('clock_in_at', shiftEndUtc)
+                      .filter('disallowed_at', 'is', null))
+                  as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+
+      final knockDateRows =
+          ((await _supabase
+                      .from('v_user_knock_dates')
+                      .select('user_id, work_date_ny')
+                      .gte('work_date_ny', startStr)
+                      .lte('work_date_ny', endStr))
+                  as List)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+      _knockDateKeys = {
+        for (final row in knockDateRows)
+          if (_userDateKey(row) != null) _userDateKey(row)!,
+      };
 
       // Apply canvasser filter
       var filteredRows = allRows;
@@ -388,6 +408,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     bool isAllData = false,
   }) {
     final shiftSeconds = _sumShiftSeconds(isAllData: isAllData);
+    final shiftHours = shiftSeconds / 3600;
+    final overlapCount = _countShiftKnockOverlap(isAllData: isAllData);
 
     if (rows.isEmpty) {
       final emptyData = {
@@ -395,10 +417,14 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         'answers': 0,
         'signups': 0,
         'hours': 0,
+        'knock_hours': 0,
         'answer_rate': 0.0,
         'knocks_per_hour': 0.0,
         'answers_per_hour': 0.0,
         'shift_seconds': shiftSeconds,
+        'shift_hours': shiftHours,
+        'total_hours': shiftHours,
+        'overlap_count': overlapCount,
       };
       if (isAllData) {
         _kpiTotalsAllData = emptyData;
@@ -417,24 +443,28 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       0,
       (s, r) => s + _toNum(r['signed_ups']),
     );
-    final totalHours = rows.fold<num>(
+    final knockHours = rows.fold<num>(
       0,
       (s, r) => s + _toNum(r['billable_hours']),
     );
 
     final answerRate = totalKnocks > 0 ? totalAnswers / totalKnocks : 0.0;
-    final knocksPerHour = totalHours > 0 ? totalKnocks / totalHours : 0.0;
-    final answersPerHour = totalHours > 0 ? totalAnswers / totalHours : 0.0;
+    final knocksPerHour = knockHours > 0 ? totalKnocks / knockHours : 0.0;
+    final answersPerHour = knockHours > 0 ? totalAnswers / knockHours : 0.0;
 
     final data = {
       'knocks': totalKnocks,
       'answers': totalAnswers,
       'signups': totalSignups,
-      'hours': totalHours,
+      'hours': knockHours,
+      'knock_hours': knockHours,
       'answer_rate': answerRate,
       'knocks_per_hour': knocksPerHour,
       'answers_per_hour': answersPerHour,
       'shift_seconds': shiftSeconds,
+      'shift_hours': shiftHours,
+      'total_hours': knockHours + shiftHours,
+      'overlap_count': overlapCount,
     };
 
     if (isAllData) {
@@ -444,24 +474,45 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     }
   }
 
+  Iterable<Map<String, dynamic>> _shiftRowsForKpi({required bool isAllData}) {
+    final useFilter = !isAllData && _selectedCanvassers.isNotEmpty;
+    return _shiftRows.where((r) {
+      if (useFilter &&
+          !_selectedCanvassers.contains((r['user_email'] ?? '').toString())) {
+        return false;
+      }
+      return true;
+    });
+  }
+
   /// Sums duration_seconds across `_shiftRows`. When `isAllData` is false
   /// and a canvasser filter is active, sums only matching rows.
   num _sumShiftSeconds({required bool isAllData}) {
-    final useFilter = !isAllData && _selectedCanvassers.isNotEmpty;
-    return _shiftRows.fold<num>(0, (s, r) {
-      if (useFilter &&
-          !_selectedCanvassers.contains((r['user_email'] ?? '').toString())) {
-        return s;
-      }
+    return _shiftRowsForKpi(isAllData: isAllData).fold<num>(0, (s, r) {
       return s + _toNum(r['duration_seconds']);
     });
   }
 
-  String _fmtShiftHours(num seconds) {
-    final total = seconds.toInt();
-    final h = total ~/ 3600;
-    final m = ((total % 3600) / 60).round();
-    return '${h}h ${m}m';
+  String? _userDateKey(Map<String, dynamic> row) {
+    final userId = (row['user_id'] ?? '').toString();
+    final workDateNy = (row['work_date_ny'] ?? '').toString();
+    if (userId.isEmpty || workDateNy.isEmpty) return null;
+    return '$userId|$workDateNy';
+  }
+
+  int _countShiftKnockOverlap({required bool isAllData}) {
+    final shiftKeys = <String>{};
+    for (final row in _shiftRowsForKpi(isAllData: isAllData)) {
+      if (_toNum(row['duration_seconds']) <= 0) continue;
+      final key = _userDateKey(row);
+      if (key != null) shiftKeys.add(key);
+    }
+    return shiftKeys.where(_knockDateKeys.contains).length;
+  }
+
+  String _fmtHours(dynamic value) {
+    final n = value is num ? value : _toNum(value);
+    return '${n.toStringAsFixed(2)} hrs';
   }
 
   void _buildLeaderboardData(List<Map<String, dynamic>> rows) {
@@ -590,12 +641,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         final hour = dt.hour;
         final type = event['event_type'].toString();
 
-        if (type == 'knocked')
+        if (type == 'knocked') {
           hourlyMap[hour]!['knocks'] = (hourlyMap[hour]!['knocks'] ?? 0) + 1;
-        if (type == 'answered')
+        }
+        if (type == 'answered') {
           hourlyMap[hour]!['answers'] = (hourlyMap[hour]!['answers'] ?? 0) + 1;
-        if (type == 'signed_up')
+        }
+        if (type == 'signed_up') {
           hourlyMap[hour]!['signups'] = (hourlyMap[hour]!['signups'] ?? 0) + 1;
+        }
       } catch (_) {}
     }
 
@@ -629,15 +683,18 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         final dayOfWeek = dt.weekday % 7; // Convert Monday=1 to Sunday=0
         final type = event['event_type'].toString();
 
-        if (type == 'knocked')
+        if (type == 'knocked') {
           dailyMap[dayOfWeek]!['knocks'] =
               (dailyMap[dayOfWeek]!['knocks'] ?? 0) + 1;
-        if (type == 'answered')
+        }
+        if (type == 'answered') {
           dailyMap[dayOfWeek]!['answers'] =
               (dailyMap[dayOfWeek]!['answers'] ?? 0) + 1;
-        if (type == 'signed_up')
+        }
+        if (type == 'signed_up') {
           dailyMap[dayOfWeek]!['signups'] =
               (dailyMap[dayOfWeek]!['signups'] ?? 0) + 1;
+        }
       } catch (_) {}
     }
 
@@ -686,12 +743,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           () => {'knocks': 0, 'answers': 0, 'signups': 0},
         );
 
-        if (type == 'knocked')
+        if (type == 'knocked') {
           zipMap[zip]!['knocks'] = (zipMap[zip]!['knocks'] ?? 0) + 1;
-        if (type == 'answered')
+        }
+        if (type == 'answered') {
           zipMap[zip]!['answers'] = (zipMap[zip]!['answers'] ?? 0) + 1;
-        if (type == 'signed_up')
+        }
+        if (type == 'signed_up') {
           zipMap[zip]!['signups'] = (zipMap[zip]!['signups'] ?? 0) + 1;
+        }
       } catch (_) {}
     }
 
@@ -1062,6 +1122,14 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
     if (kpiData.isEmpty) return const SizedBox.shrink();
 
+    final overlapCount = _toNum(kpiData['overlap_count']).toInt();
+    final overlapLabel = overlapCount == 1
+        ? '1 overlap day'
+        : '$overlapCount overlap days';
+    final overlapTooltip =
+        '$overlapCount canvasser-day${overlapCount == 1 ? '' : 's'} in this range '
+        'have both shift time and knock time. Total Hours may double count time.';
+
     return Card(
       elevation: 0,
       color: Colors.blue.shade50,
@@ -1160,8 +1228,21 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                 ),
                 _buildKPIMetric(
                   'Shift Hours',
-                  _fmtShiftHours(_toNum(kpiData['shift_seconds'])),
+                  _fmtHours(kpiData['shift_hours']),
                   Icons.access_time,
+                ),
+                _buildKPIMetric(
+                  'Knock Hours',
+                  _fmtHours(kpiData['knock_hours']),
+                  Icons.pan_tool_alt_outlined,
+                ),
+                _buildKPIMetric(
+                  'Total Hours',
+                  _fmtHours(kpiData['total_hours']),
+                  Icons.timer_outlined,
+                  highlighted: true,
+                  warningLabel: overlapCount > 0 ? overlapLabel : null,
+                  warningTooltip: overlapCount > 0 ? overlapTooltip : null,
                 ),
               ],
             ),
@@ -1176,9 +1257,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     String value,
     IconData icon, {
     bool highlighted = false,
+    String? warningLabel,
+    String? warningTooltip,
   }) {
     return SizedBox(
-      width: 140,
+      width: warningLabel == null ? 140 : 190,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1198,6 +1281,17 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              if (warningLabel != null) ...[
+                const SizedBox(width: 4),
+                Tooltip(
+                  message: warningTooltip ?? warningLabel,
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    size: 16,
+                    color: Colors.orange.shade800,
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 4),
@@ -1209,6 +1303,17 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               color: highlighted ? Colors.blue.shade700 : Colors.black87,
             ),
           ),
+          if (warningLabel != null) ...[
+            const SizedBox(height: 3),
+            Text(
+              warningLabel,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.orange.shade900,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1993,9 +2098,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
                   onPressed: () async {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => ManagerShiftsPage(initialRange: _range),
-                    ));
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ManagerShiftsPage(initialRange: _range),
+                      ),
+                    );
                     if (!mounted) return;
                     _fetch();
                   },
