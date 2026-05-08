@@ -45,10 +45,11 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
       _error = null;
     });
     try {
-      final start = DateTime(widget.range.start.year, widget.range.start.month,
-              widget.range.start.day)
-          .toUtc()
-          .toIso8601String();
+      final start = DateTime(
+        widget.range.start.year,
+        widget.range.start.month,
+        widget.range.start.day,
+      ).toUtc().toIso8601String();
       final endExclusive = DateTime(
         widget.range.end.year,
         widget.range.end.month,
@@ -87,8 +88,7 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
           .toList();
 
       final hadKnocks = <String>{
-        for (final r in knockRows)
-          '${r['user_id']}|${r['work_date_ny']}',
+        for (final r in knockRows) '${r['user_id']}|${r['work_date_ny']}',
       };
 
       if (!mounted) return;
@@ -149,8 +149,8 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                 Text(
                   'Shifts (clock in/out)',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const Spacer(),
                 if (_loading)
@@ -175,14 +175,18 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                   color: Colors.red.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text('Error: $_error',
-                    style: const TextStyle(fontSize: 12)),
+                child: Text(
+                  'Error: $_error',
+                  style: const TextStyle(fontSize: 12),
+                ),
               )
             else if (_rows.isEmpty && !_loading)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text('No shifts in this date range.',
-                    style: TextStyle(color: Colors.black54)),
+                child: Text(
+                  'No shifts in this date range.',
+                  style: TextStyle(color: Colors.black54),
+                ),
               )
             else
               SingleChildScrollView(
@@ -214,104 +218,127 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                     final strike = disallowed
                         ? TextDecoration.lineThrough
                         : TextDecoration.none;
-                    final mutedColor =
-                        disallowed ? Colors.black45 : Colors.black87;
+                    final mutedColor = disallowed
+                        ? Colors.black45
+                        : Colors.black87;
                     final userId = (r['user_id'] ?? '').toString();
                     final workDateNy = (r['work_date_ny'] ?? '').toString();
                     final knockKey = '$userId|$workDateNy';
                     final hasComparableDate =
                         userId.isNotEmpty && workDateNy.isNotEmpty;
-                    final knockedThatDay = !disallowed &&
+                    final knockedThatDay =
+                        !disallowed &&
                         hasComparableDate &&
                         _hadKnocksKeys.contains(knockKey);
                     return DataRow(
                       color: knockedThatDay
                           ? WidgetStateProperty.resolveWith(
-                              (_) => Colors.red.shade50)
+                              (_) => Colors.red.shade50,
+                            )
                           : null,
                       cells: [
-                      DataCell(Text(
-                        (r['user_email'] ?? '—').toString(),
-                        style: TextStyle(
-                          decoration: strike,
-                          color: mutedColor,
-                        ),
-                      )),
-                      DataCell(Text(
-                        _fmtDateTime(clockIn),
-                        style: TextStyle(
-                          decoration: strike,
-                          color: mutedColor,
-                        ),
-                      )),
-                      DataCell(Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                        DataCell(
                           Text(
-                            isOpen ? '— (open)' : _fmtDateTime(clockOut!),
+                            (r['user_email'] ?? '—').toString(),
                             style: TextStyle(
-                              color: disallowed
-                                  ? Colors.black45
-                                  : (isOpen
-                                      ? Colors.orange.shade800
-                                      : Colors.black87),
-                              fontWeight: isOpen
-                                  ? FontWeight.w700
-                                  : FontWeight.w400,
+                              decoration: strike,
+                              color: mutedColor,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            _fmtDateTime(clockIn),
+                            style: TextStyle(
+                              decoration: strike,
+                              color: mutedColor,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                isOpen ? '— (open)' : _fmtDateTime(clockOut!),
+                                style: TextStyle(
+                                  color: disallowed
+                                      ? Colors.black45
+                                      : (isOpen
+                                            ? Colors.orange.shade800
+                                            : Colors.black87),
+                                  fontWeight: isOpen
+                                      ? FontWeight.w700
+                                      : FontWeight.w400,
+                                  decoration: strike,
+                                ),
+                              ),
+                              if (autoClosed && !disallowed) ...[
+                                const SizedBox(width: 6),
+                                Tooltip(
+                                  message: 'Auto-closed after 9 PM (4h cap)',
+                                  child: Icon(
+                                    Icons.schedule,
+                                    size: 16,
+                                    color: Colors.red.shade700,
+                                  ),
+                                ),
+                              ],
+                              if (disallowed) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'VOIDED',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black54,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            disallowed
+                                ? '0h 0m'
+                                : _fmtDuration(seconds.toInt()),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: mutedColor,
                               decoration: strike,
                             ),
                           ),
-                          if (autoClosed && !disallowed) ...[
-                            const SizedBox(width: 6),
-                            Tooltip(
-                              message:
-                                  'Auto-closed at 10 PM / 12h cutoff — review',
-                              child: Icon(Icons.schedule,
-                                  size: 16, color: Colors.red.shade700),
-                            ),
-                          ],
-                          if (disallowed) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade300,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'VOIDED',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black54,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      )),
-                      DataCell(Text(
-                        disallowed ? '0h 0m' : _fmtDuration(seconds.toInt()),
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: mutedColor,
-                          decoration: strike,
                         ),
-                      )),
-                      DataCell(Icon(
-                        edited ? Icons.edit_note : Icons.remove,
-                        color:
-                            edited ? Colors.orange.shade700 : Colors.black26,
-                        size: 18,
-                      )),
-                      DataCell(IconButton(
-                        icon: const Icon(Icons.edit, size: 18),
-                        tooltip: 'Override',
-                        onPressed: () => _openEditor(r),
-                      )),
-                    ]);
+                        DataCell(
+                          Icon(
+                            edited ? Icons.edit_note : Icons.remove,
+                            color: edited
+                                ? Colors.orange.shade700
+                                : Colors.black26,
+                            size: 18,
+                          ),
+                        ),
+                        DataCell(
+                          IconButton(
+                            icon: const Icon(Icons.edit, size: 18),
+                            tooltip: 'Override',
+                            onPressed: () => _openEditor(r),
+                          ),
+                        ),
+                      ],
+                    );
                   }).toList(),
                 ),
               ),
@@ -353,10 +380,10 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
       _error = null;
     });
     try {
-      await Supabase.instance.client.rpc('manager_disallow_shift', params: {
-        'p_shift_id': widget.row['id'],
-        'p_disallow': next,
-      });
+      await Supabase.instance.client.rpc(
+        'manager_disallow_shift',
+        params: {'p_shift_id': widget.row['id'], 'p_disallow': next},
+      );
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -394,11 +421,14 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
       _error = null;
     });
     try {
-      await Supabase.instance.client.rpc('manager_update_shift', params: {
-        'p_shift_id': widget.row['id'],
-        'p_clock_in_at': _clockIn.toUtc().toIso8601String(),
-        'p_clock_out_at': _clockOut?.toUtc().toIso8601String(),
-      });
+      await Supabase.instance.client.rpc(
+        'manager_update_shift',
+        params: {
+          'p_shift_id': widget.row['id'],
+          'p_clock_in_at': _clockIn.toUtc().toIso8601String(),
+          'p_clock_out_at': _clockOut?.toUtc().toIso8601String(),
+        },
+      );
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -435,8 +465,10 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
             if (email.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: Text(email,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                child: Text(
+                  email,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
               ),
             if (_disallowed)
               Container(
@@ -450,8 +482,7 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.block,
-                        size: 18, color: Colors.grey.shade700),
+                    Icon(Icons.block, size: 18, color: Colors.grey.shade700),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -477,13 +508,11 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.schedule,
-                        size: 18, color: Colors.red.shade700),
+                    Icon(Icons.schedule, size: 18, color: Colors.red.shade700),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Auto-closed at the 10 PM / 12h cutoff. '
-                        'Adjust the clock-out time if the canvasser worked longer.',
+                        'Auto-closed after 9 PM using a 4h cap.',
                         style: TextStyle(
                           fontSize: 12.5,
                           color: Colors.red.shade900,
@@ -516,8 +545,9 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
               trailing: _clockOut == null
                   ? null
                   : TextButton(
-                      onPressed:
-                          _saving ? null : () => setState(() => _clockOut = null),
+                      onPressed: _saving
+                          ? null
+                          : () => setState(() => _clockOut = null),
                       child: const Text('Clear'),
                     ),
             ),
@@ -593,13 +623,19 @@ class _FieldRow extends StatelessWidget {
           children: [
             SizedBox(
               width: 80,
-              child: Text(label,
-                  style: const TextStyle(
-                      color: Colors.black54, fontWeight: FontWeight.w600)),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             Expanded(
-              child: Text(value,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              child: Text(
+                value,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
             ),
             if (trailing != null) trailing!,
             const Icon(Icons.edit_calendar, size: 18, color: Colors.black45),
