@@ -44,6 +44,12 @@ canvassers and managers and is currently deployed as a Flutter Web app.
 - Dashboards:
   - Canvasser dashboard (personal stats and paid time)
   - Manager dashboard (team stats and drilldowns)
+- Shifts (clock-in / clock-out):
+  - Canvassers clock in and out from the canvasser home screen
+  - Today's shifts plus a full shift history page
+  - Auto clock-out after 9 PM NY (capped at clock-in + 4 hours)
+  - Managers can override or disallow shifts in the manager dashboard
+  - Shift rows highlight red when a canvasser also knocked that day
 
 ### Tech Stack
 
@@ -72,6 +78,11 @@ Relevant folders under `lib/`:
   - `canvasser/canvasser_dashboard_page.dart`
   - `manager/manager_dashboard_page.dart`
   - `manager/bucket_drilldown_page.dart`
+- `features/shifts/`
+  - `clock_card.dart` – Clock-in/out card on the canvasser home
+  - `shift_service.dart` – Shift data model and Supabase calls
+  - `canvasser_shifts_history_page.dart` – Past shifts grouped by date
+  - `manager_shifts_page.dart` / `manager_shifts_section.dart` – Manager shifts view (override, disallow, red flag)
 - `main.dart`
   - Supabase initialization
   - App theme
@@ -117,6 +128,16 @@ Relevant folders under `lib/`:
 - `user_id` (uuid)
 - `role` (text: `canvasser` or `manager`)
 
+#### `shifts`
+
+- `id` (uuid)
+- `user_id` (uuid)
+- `clock_in_at` / `clock_out_at` (timestamptz)
+- `clock_in_lat` / `clock_in_lon` / `clock_in_accuracy_m` (and clock-out equivalents)
+- `auto_closed` (bool) – set when closed by the cron
+- `disallowed_at` / `disallowed_by` – set when a manager voids the shift
+- `edited_at` / `edited_by` / `notes`
+
 ---
 
 ### Views (Used by Dashboards)
@@ -124,6 +145,8 @@ Relevant folders under `lib/`:
 - `v_payroll_daily`
 - `v_performance_daily`
 - `v_manager_daily_summary`
+- `v_shifts_detail` – per-shift detail used by the manager shifts view and KPI tiles
+- `v_user_knock_dates` – one row per (canvasser, NY-local date) with at least one `knocked` event
 
 Business logic for payroll and metrics lives in SQL views to keep Flutter UI simple.
 
@@ -137,6 +160,29 @@ Business logic for payroll and metrics lives in SQL views to keep Flutter UI sim
 - `get_houses_for_street`
   - Used by Houses page
   - Loads houses for selected street
+- `clock_in` / `clock_out`
+  - Called by the canvasser clock card
+- `manager_update_shift`
+  - Manager override of clock-in/out times
+- `manager_disallow_shift`
+  - Manager-only; voids a shift so it doesn't count toward hours
+- `auto_close_stale_shifts`
+  - Run by pg_cron; closes open shifts past 9 PM NY (see Scheduled Jobs)
+
+---
+
+### Scheduled Jobs (pg_cron)
+
+Scheduled jobs live in Supabase, not in this repo. To see them, run in the Supabase SQL editor:
+
+```sql
+SELECT jobname, schedule, command FROM cron.job;
+```
+
+Current jobs:
+
+- `auto_close_stale_shifts` – every 15 min. Closes any open shift past 9 PM NY, capping clock-out at clock-in + 4 hours.
+- `refresh_mv_unique_towns` – refreshes the cached `mv_unique_towns` materialized view used by the Towns page.
 
 ---
 
@@ -206,7 +252,13 @@ Shows team-wide daily summaries:
 - Answer and conversion rates
 - Knocks per paid hour
 
-Clicking a row opens a bucket-level drilldown for auditing payroll logic.
+KPI summary card (respects canvasser + date filters):
+
+- Shift Hours – total clocked time
+- Knock Hours – `billable_hours` from `v_payroll_daily`
+- Total Hours – Shift Hours + Knock Hours, with a warning chip on days that have both (possible double-count)
+
+Clicking a row opens a bucket-level drilldown for auditing payroll logic. The Shifts button opens the manager shifts view, where managers can override or disallow individual shifts.
 
 ---
 
@@ -245,85 +297,94 @@ await Supabase.initialize(
   url: 'https://<project>.supabase.co',
   anonKey: '<public-anon-key>',
 );
-Run
-bash
-Copy code
+```
+
+Run:
+
+```bash
 flutter pub get
 flutter run -d chrome
+```
 
-8. Deployment (Flutter Web)
-Hosted on GitHub Pages
+---
 
-Built via GitHub Actions on push to main
+## 8. Deployment (Flutter Web)
 
-build/ directory is gitignored
+- Hosted on GitHub Pages
+- Built via GitHub Actions on push to `main`
+- `build/` directory is gitignored
+- No build artifacts committed
+- Live URL: https://colt-home-services.github.io/colt-canvassing-app/
 
-No build artifacts committed
+---
 
-Live URL: https://colt-home-services.github.io/colt-canvassing-app/
+## 9. Operational Guide (Managers & Future Interns)
 
-9. Operational Guide (Managers & Future Interns)
-Sign-Up Access Code (CHS Code Gate)
-Current code: chs2025
+### Sign-Up Access Code (CHS Code Gate)
 
-Update in: lib/features/auth/sign_in_page.dart
+- Current code: `chs2025`
+- Update in: `lib/features/auth/sign_in_page.dart`
 
-Changing a User Role
+### Changing a User Role
+
 Run in Supabase SQL Editor:
 
-sql
-Copy code
+```sql
 update profiles
 set role = 'manager'
 where user_id = '<USER_UUID>';
+```
+
 Valid roles:
 
-canvasser
+- `canvasser`
+- `manager`
 
-manager
+### Password Reset (Forgot Password) — Supabase URL Settings
 
-Password Reset (Forgot Password) — Supabase URL Settings
-Supabase Dashboard → Authentication → URL Configuration
+Supabase Dashboard → Authentication → URL Configuration.
 
-Set:
+Set Site URL:
 
-Site URL
-
-arduino
-Copy code
+```
 https://colt-home-services.github.io/colt-canvassing-app/
-Add under Redirect URLs
+```
 
-arduino
-Copy code
+Add under Redirect URLs:
+
+```
 https://colt-home-services.github.io/colt-canvassing-app/
-(Optional for local dev)
+```
 
-arduino
-Copy code
+Optional for local dev:
+
+```
 http://localhost:<PORT>/
-If Redirect URLs are missing, reset links can drop recovery tokens and appear to “hang”.
+```
 
-Changing Passwords (Manual/Admin)
+If Redirect URLs are missing, reset links can drop recovery tokens and appear to "hang".
+
+### Changing Passwords (Manual/Admin)
+
 If forgot password is disabled in the UI, an admin can:
 
-Supabase Dashboard → Authentication → Users → send reset password email
+- Supabase Dashboard → Authentication → Users → send reset password email
 
-10. Known Issues and Risks
-Rare initial town load timeout (retry resolves it)
+---
 
-Streets/houses are not paginated (scalability risk with very large datasets)
+## 10. Known Issues and Risks
 
-Possible divergence between house_events history and houses snapshot fields
+- Rare initial town load timeout (retry resolves it)
+- Streets/houses are not paginated (scalability risk with very large datasets)
+- Possible divergence between `house_events` history and `houses` snapshot fields
 
-11. Future Work
-Enforced geotagging rules
+---
 
-Pagination for houses
+## 11. Future Work
 
-Exportable reports
-
-Mobile (iOS/Android) builds
-
-Offline-first support
+- Enforced geotagging rules
+- Pagination for houses
+- Exportable reports
+- Mobile (iOS/Android) builds
+- Offline-first support
 
