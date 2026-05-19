@@ -15,7 +15,7 @@ Future<void> main() async {
   await Supabase.initialize(
     url: 'https://wohhowvhvmatnraomcsd.supabase.co',
     anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvaGhvd3Zodm1hdG5yYW9tY3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzc3MzM0OTEsImV4cCI6MjA1MzMwOTQ5MX0.eHyCvgBSczm1bWff4BmIyklLeYQ4ovWaoSYl0Uv9Y_8',
+        'sb_publishable_jkXpbnJLw8nsWchfqfPgXw_8b85FH5l',
     authOptions: const FlutterAuthClientOptions(
       authFlowType: AuthFlowType.pkce, // ✅ recommended for Flutter Web
     ),
