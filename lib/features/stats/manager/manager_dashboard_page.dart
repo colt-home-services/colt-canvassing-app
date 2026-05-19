@@ -4,6 +4,7 @@ import '../../canvassing/towns_page.dart';
 import '../../shifts/manager_shifts_page.dart';
 import 'bucket_drilldown_page.dart';
 import 'route_map_dialog.dart';
+import '../../../core/data/conversion_rate_cache.dart';
 
 class ManagerDashboardPage extends StatefulWidget {
   const ManagerDashboardPage({super.key});
@@ -43,6 +44,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   List<Map<String, dynamic>> _dailyPerformance = [];
   List<Map<String, dynamic>> _zipPerformance = [];
 
+  // Conversion rate (manager-entered percentage, persisted locally)
+  double _conversionRate = 0.0;
+  late TextEditingController _conversionRateController;
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +57,16 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       end: now,
     );
     _zipTextController = TextEditingController();
+    _conversionRateController = TextEditingController();
+    ConversionRateCache.read().then((saved) {
+      if (!mounted || saved == null) return;
+      setState(() {
+        _conversionRate = saved;
+        _conversionRateController.text = saved == saved.truncateToDouble()
+            ? saved.toInt().toString()
+            : saved.toString();
+      });
+    });
     _loadFilterOptions();
     _fetch();
   }
@@ -59,6 +74,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   @override
   void dispose() {
     _zipTextController.dispose();
+    _conversionRateController.dispose();
     super.dispose();
   }
 
@@ -395,6 +411,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         ),
       );
     }
+  }
+
+  void _onConversionRateChanged(String raw) {
+    final parsed = double.tryParse(raw.trim()) ?? 0.0;
+    final clamped = parsed < 0 ? 0.0 : parsed;
+    setState(() => _conversionRate = clamped);
+    ConversionRateCache.write(clamped); // fire-and-forget
   }
 
   num _toNum(dynamic v) {
@@ -1122,6 +1145,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
     if (kpiData.isEmpty) return const SizedBox.shrink();
 
+    final signupsForCost = _toNum(kpiData['signups']).toDouble();
+    final totalHoursForCost = _toNum(kpiData['total_hours']).toDouble();
+    final convertedAudits = signupsForCost * _conversionRate / 100;
+    final totalCost = totalHoursForCost * 25 + convertedAudits * 30;
+
     final overlapCount = _toNum(kpiData['overlap_count']).toInt();
     final overlapLabel = overlapCount == 1
         ? '1 overlap day'
@@ -1244,6 +1272,18 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   warningLabel: overlapCount > 0 ? overlapLabel : null,
                   warningTooltip: overlapCount > 0 ? overlapTooltip : null,
                 ),
+                _buildConversionRateInput(),
+                _buildKPIMetric(
+                  'Converted Audits',
+                  convertedAudits.toStringAsFixed(1),
+                  Icons.verified_outlined,
+                ),
+                _buildKPIMetric(
+                  'Total Cost',
+                  '\$${totalCost.toStringAsFixed(2)}',
+                  Icons.attach_money,
+                  highlighted: true,
+                ),
               ],
             ),
           ],
@@ -1314,6 +1354,48 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConversionRateInput() {
+    return SizedBox(
+      width: 140,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tune, size: 16, color: Colors.black54),
+              const SizedBox(width: 4),
+              const Text(
+                'Conversion Rate',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          TextField(
+            controller: _conversionRateController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: _onConversionRateChanged,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+            ),
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 4),
+              suffixText: '%',
+              border: UnderlineInputBorder(),
+            ),
+          ),
         ],
       ),
     );
