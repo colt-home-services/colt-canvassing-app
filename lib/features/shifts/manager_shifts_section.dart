@@ -79,13 +79,21 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
             .gte('valid_buckets', 8)
             .gte('work_date_ny', startYmd)
             .lte('work_date_ny', endYmd),
+        _supabase
+            .from('v_user_knock_dates')
+            .select('user_id, work_date_ny')
+            .gte('work_date_ny', startYmd)
+            .lte('work_date_ny', endYmd),    
       ]);
            
 
       final shiftRows = (results[0] as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
-      final knockRows = (results[1] as List)
+      final payrollRows = (results[1] as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      final knockRows = (results[2] as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
@@ -95,7 +103,7 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
 
   
 
-      final bonusRows = knockRows.map((k) {
+      final bonusRows = payrollRows.map((k) {
         final uid = k['user_id'].toString();
         final date = k['work_date_ny'].toString();
         return <String, dynamic>{
