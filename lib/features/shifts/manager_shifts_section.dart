@@ -74,11 +74,13 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
       final results = await Future.wait([
         query.order('clock_in_at', ascending: false),
         _supabase
-            .from('v_user_knock_dates')
-            .select('user_id, work_date_ny')
+            .from('v_payroll_daily')
+            .select('user_id, user_email, work_date_ny, valid_buckets, billable_hours')
+            .gte('valid_buckets', 8)
             .gte('work_date_ny', startYmd)
             .lte('work_date_ny', endYmd),
       ]);
+           
 
       final shiftRows = (results[0] as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
@@ -91,18 +93,14 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
         for (final r in knockRows) '${r['user_id']}|${r['work_date_ny']}',
       };
 
-      final emailByUserID = <String, String>{
-          for (final r in shiftRows)
-            if (r['user_id'] != null && r['user_email'] != null)
-              r['user_id'].toString(): r['user_email'].toString(),
-      };
+  
 
       final bonusRows = knockRows.map((k) {
         final uid = k['user_id'].toString();
         final date = k['work_date_ny'].toString();
         return <String, dynamic>{
           'user_id': uid,
-          'user_email': emailByUserID[uid] ?? uid, 
+          'user_email': k['user_email'] ?? uid, 
           'work_date_ny': date,
           'clock_in_at': '${date}T08:00:00',       //fake 8:00 AM start
           'clock_out_at': '${date}T08:15:00',      //fake 8:15 AM end
