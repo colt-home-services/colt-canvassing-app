@@ -74,16 +74,26 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
       final results = await Future.wait([
         query.order('clock_in_at', ascending: false),
         _supabase
+            .from('v_payroll_daily')
+            .select('user_id, user_email, work_date_ny, valid_buckets, billable_hours')
+            .gte('valid_buckets', 8)
+            .gte('work_date_ny', startYmd)
+            .lte('work_date_ny', endYmd),
+        _supabase
             .from('v_user_knock_dates')
             .select('user_id, work_date_ny')
             .gte('work_date_ny', startYmd)
-            .lte('work_date_ny', endYmd),
+            .lte('work_date_ny', endYmd),    
       ]);
+           
 
       final shiftRows = (results[0] as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
-      final knockRows = (results[1] as List)
+      final payrollRows = (results[1] as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      final knockRows = (results[2] as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
@@ -91,9 +101,30 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
         for (final r in knockRows) '${r['user_id']}|${r['work_date_ny']}',
       };
 
+  
+
+      final bonusRows = payrollRows.map((k) {
+        final uid = k['user_id'].toString();
+        final date = k['work_date_ny'].toString();
+        return <String, dynamic>{
+          'user_id': uid,
+          'user_email': k['user_email'] ?? uid, 
+          'work_date_ny': date,
+          'clock_in_at': '${date}T08:00:00',       //fake 8:00 AM start
+          'clock_out_at': '${date}T08:15:00',      //fake 8:15 AM end
+          'duration_seconds': 900,                 //15 min in seconds
+          'is_bonus': true,                        // our flag for green row
+        };
+
+      }).toList();
+
+      final allRows = [...shiftRows, ...bonusRows];
+      allRows.sort((a, b) =>
+          (b['clock_in_at'] as String).compareTo(a['clock_in_at'] as String));
+
       if (!mounted) return;
       setState(() {
-        _rows = shiftRows;
+        _rows = allRows;
         _hadKnocksKeys = hadKnocks;
         _loading = false;
       });
@@ -215,6 +246,7 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                     final edited = r['edited_at'] != null;
                     final autoClosed = (r['auto_closed'] as bool?) ?? false;
                     final disallowed = r['disallowed_at'] != null;
+                    final isBonus = (r['is_bonus'] as bool?) ?? false;
                     final strike = disallowed
                         ? TextDecoration.lineThrough
                         : TextDecoration.none;
@@ -231,8 +263,11 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                         hasComparableDate &&
                         _hadKnocksKeys.contains(knockKey);
                     return DataRow(
-                      color: knockedThatDay
+                      color: isBonus
                           ? WidgetStateProperty.resolveWith(
+                              (_) => Colors.green.shade50,
+                            )
+                          : knockedThatDay ? WidgetStateProperty.resolveWith(
                               (_) => Colors.red.shade50,
                             )
                           : null,
@@ -330,6 +365,7 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                             size: 18,
                           ),
                         ),
+                        isBonus ? DataCell(SizedBox.shrink()):
                         DataCell(
                           IconButton(
                             icon: const Icon(Icons.edit, size: 18),
