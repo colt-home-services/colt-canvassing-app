@@ -1149,6 +1149,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     final totalHoursForCost = _toNum(kpiData['total_hours']).toDouble();
     final convertedAudits = signupsForCost * _conversionRate / 100;
     final totalCost = totalHoursForCost * 25 + convertedAudits * 30;
+    final costPerAudit = convertedAudits > 0 ? totalCost / convertedAudits : 0.0;
 
     final overlapCount = _toNum(kpiData['overlap_count']).toInt();
     final overlapLabel = overlapCount == 1
@@ -1283,6 +1284,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   '\$${totalCost.toStringAsFixed(2)}',
                   Icons.attach_money,
                   highlighted: true,
+                ),
+                _buildKPIMetric(
+                  'Cost Per Audit',
+                  convertedAudits > 0
+                      ? '\$${costPerAudit.toStringAsFixed(2)}'
+                      : '—',
+                  Icons.calculate_outlined,
                 ),
               ],
             ),
