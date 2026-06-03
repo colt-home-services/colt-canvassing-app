@@ -71,19 +71,26 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
       final startYmd = ymd(widget.range.start);
       final endYmd = ymd(widget.range.end);
 
+      var payrollQuery = _supabase
+          .from('v_payroll_daily')
+          .select('user_id, user_email, work_date_ny, valid_buckets, billable_hours')
+          .gte('valid_buckets', 8)
+          .gte('work_date_ny', startYmd)
+          .lte('work_date_ny', endYmd);
+
+      if (widget.selectedCanvasserEmails.isNotEmpty) {
+        payrollQuery =
+            payrollQuery.inFilter('user_email', widget.selectedCanvasserEmails);
+      }
+
       final results = await Future.wait([
         query.order('clock_in_at', ascending: false),
-        _supabase
-            .from('v_payroll_daily')
-            .select('user_id, user_email, work_date_ny, valid_buckets, billable_hours')
-            .gte('valid_buckets', 8)
-            .gte('work_date_ny', startYmd)
-            .lte('work_date_ny', endYmd),
+        payrollQuery,
         _supabase
             .from('v_user_knock_dates')
             .select('user_id, work_date_ny')
             .gte('work_date_ny', startYmd)
-            .lte('work_date_ny', endYmd),    
+            .lte('work_date_ny', endYmd),
       ]);
            
 
