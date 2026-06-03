@@ -71,36 +71,22 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
       final startYmd = ymd(widget.range.start);
       final endYmd = ymd(widget.range.end);
 
-      var payrollQuery = _supabase
-          .from('v_payroll_daily')
-          .select('user_id, user_email, work_date_ny, valid_buckets, billable_hours')
-          .gte('valid_buckets', 8)
-          .gte('work_date_ny', startYmd)
-          .lte('work_date_ny', endYmd);
-
-      if (widget.selectedCanvasserEmails.isNotEmpty) {
-        payrollQuery =
-            payrollQuery.inFilter('user_email', widget.selectedCanvasserEmails);
-      }
-
+      // Bonus shifts are now real is_bonus rows in the shifts table (generated
+      // server-side by generate_bonus_shifts), so they arrive through the
+      // v_shifts_detail query above. No client-side fabrication needed.
       final results = await Future.wait([
         query.order('clock_in_at', ascending: false),
-        payrollQuery,
         _supabase
             .from('v_user_knock_dates')
             .select('user_id, work_date_ny')
             .gte('work_date_ny', startYmd)
             .lte('work_date_ny', endYmd),
       ]);
-           
 
       final shiftRows = (results[0] as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
-      final payrollRows = (results[1] as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-      final knockRows = (results[2] as List)
+      final knockRows = (results[1] as List)
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
@@ -108,30 +94,9 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
         for (final r in knockRows) '${r['user_id']}|${r['work_date_ny']}',
       };
 
-  
-
-      final bonusRows = payrollRows.map((k) {
-        final uid = k['user_id'].toString();
-        final date = k['work_date_ny'].toString();
-        return <String, dynamic>{
-          'user_id': uid,
-          'user_email': k['user_email'] ?? uid, 
-          'work_date_ny': date,
-          'clock_in_at': '${date}T08:00:00',       //fake 8:00 AM start
-          'clock_out_at': '${date}T08:15:00',      //fake 8:15 AM end
-          'duration_seconds': 900,                 //15 min in seconds
-          'is_bonus': true,                        // our flag for green row
-        };
-
-      }).toList();
-
-      final allRows = [...shiftRows, ...bonusRows];
-      allRows.sort((a, b) =>
-          (b['clock_in_at'] as String).compareTo(a['clock_in_at'] as String));
-
       if (!mounted) return;
       setState(() {
-        _rows = allRows;
+        _rows = shiftRows;
         _hadKnocksKeys = hadKnocks;
         _loading = false;
       });
