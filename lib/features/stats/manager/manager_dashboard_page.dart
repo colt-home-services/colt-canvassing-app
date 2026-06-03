@@ -1146,6 +1146,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     if (kpiData.isEmpty) return const SizedBox.shrink();
 
     final signupsForCost = _toNum(kpiData['signups']).toDouble();
+    final answersForRate = _toNum(kpiData['answers']).toDouble();
+    final signupRate = answersForRate > 0 ? signupsForCost / answersForRate : 0.0;
     final totalHoursForCost = _toNum(kpiData['total_hours']).toDouble();
     final convertedAudits = signupsForCost * _conversionRate / 100;
     final totalCost = totalHoursForCost * 25 + convertedAudits * 30;
@@ -1236,6 +1238,14 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   'Signups',
                   kpiData['signups']?.toStringAsFixed(0) ?? '0',
                   Icons.check_circle,
+                  highlighted: true,
+                ),
+                _buildKPIMetric(
+                  'Signup Rate',
+                  answersForRate > 0
+                      ? '${(signupRate * 100).toStringAsFixed(1)}%'
+                      : '—',
+                  Icons.trending_up,
                   highlighted: true,
                 ),
                 _buildKPIMetric(
