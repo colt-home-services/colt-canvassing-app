@@ -204,6 +204,7 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                     DataColumn(label: Text('Clock in')),
                     DataColumn(label: Text('Clock out')),
                     DataColumn(label: Text('Duration')),
+                    DataColumn(label: Text('Sign-ups')),
                     DataColumn(label: Text('Edited')),
                     DataColumn(label: Text('')),
                   ],
@@ -321,6 +322,20 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                             disallowed
                                 ? '0h 0m'
                                 : _fmtDuration(seconds.toInt()),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: mutedColor,
+                              decoration: strike,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            r['self_reported_signups'] == null
+                                ? '—'
+                                : (r['self_reported_signups'] as num)
+                                    .toInt()
+                                    .toString(),
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               color: mutedColor,
