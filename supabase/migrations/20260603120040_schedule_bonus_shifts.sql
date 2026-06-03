@@ -10,15 +10,14 @@ EXCEPTION WHEN OTHERS THEN
   NULL; -- job did not exist yet
 END $do$;
 
+-- NOTE: iterate integer day-offsets, NOT generate_series over date bounds.
+-- generate_series(date, date, interval) resolves via timestamptz and can skip
+-- calendar days depending on session timezone, leaving days unprocessed.
 SELECT cron.schedule(
   'nightly-bonus-shifts',
-  '0 6 * * *',  -- 06:00 UTC daily
+  '0 6 * * *',  -- 06:00 UTC daily (~1-2 AM Eastern)
   $job$
-  SELECT public.generate_bonus_shifts(d::date)
-  FROM generate_series(
-    (now() AT TIME ZONE 'America/New_York')::date - 13,
-    (now() AT TIME ZONE 'America/New_York')::date,
-    interval '1 day'
-  ) AS d;
+  SELECT public.generate_bonus_shifts((now() AT TIME ZONE 'America/New_York')::date - g)
+  FROM generate_series(0, 13) AS g;
   $job$
 );
