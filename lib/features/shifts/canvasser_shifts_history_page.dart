@@ -249,9 +249,15 @@ class _CanvasserShiftsHistoryPageState
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              isOpen
-                  ? '${_fmtTime(s.clockInAt)} → still open'
-                  : '${_fmtTime(s.clockInAt)} → ${_fmtTime(s.clockOutAt!)}',
+              () {
+                final base = isOpen
+                    ? '${_fmtTime(s.clockInAt)} → still open'
+                    : '${_fmtTime(s.clockInAt)} → ${_fmtTime(s.clockOutAt!)}';
+                final signups = s.selfReportedSignups;
+                return (!isOpen && signups != null)
+                    ? '$base · $signups sign-ups'
+                    : base;
+              }(),
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,

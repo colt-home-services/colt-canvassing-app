@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme/chs_colors.dart';
 import 'canvasser_shifts_history_page.dart';
+import 'clock_out_dialog.dart';
 import 'shift_service.dart';
 
 class ClockCard extends StatefulWidget {
@@ -130,33 +131,13 @@ class _ClockCardState extends State<ClockCard> {
 
   Future<void> _onClockOut() async {
     if (_busy) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('End this shift?'),
-        content: const Text('Your time will be saved. You can clock in again later.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kChsPrimary,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Clock out'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    final signups = await showClockOutSignupsDialog(context);
+    if (signups == null) return; // cancelled
 
     setState(() => _busy = true);
     try {
       final (lat, lon, acc) = await _getLocation();
-      await _svc.clockOut(lat: lat, lon: lon, accuracyM: acc);
+      await _svc.clockOut(lat: lat, lon: lon, accuracyM: acc, signups: signups);
       await _refresh();
     } catch (e) {
       _showError('Clock-out failed: $e');
@@ -336,9 +317,13 @@ class _ClockCardState extends State<ClockCard> {
 
   Widget _todayShiftRow(Shift s) {
     final isOpen = s.isOpen;
-    final timesText = isOpen
+    final signups = s.selfReportedSignups;
+    final baseTimes = isOpen
         ? '${_fmtTime(s.clockInAt)} → still open'
         : '${_fmtTime(s.clockInAt)} → ${_fmtTime(s.clockOutAt!)}';
+    final timesText = (!isOpen && signups != null)
+        ? '$baseTimes · $signups sign-ups'
+        : baseTimes;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

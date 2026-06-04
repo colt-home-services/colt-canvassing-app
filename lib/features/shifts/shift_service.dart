@@ -7,6 +7,7 @@ class Shift {
   final DateTime? clockOutAt;
   final bool autoClosed;
   final DateTime? disallowedAt;
+  final int? selfReportedSignups;
 
   const Shift({
     required this.id,
@@ -15,6 +16,7 @@ class Shift {
     required this.clockOutAt,
     required this.autoClosed,
     required this.disallowedAt,
+    required this.selfReportedSignups,
   });
 
   bool get isOpen => clockOutAt == null;
@@ -36,6 +38,7 @@ class Shift {
         disallowedAt: m['disallowed_at'] == null
             ? null
             : DateTime.parse(m['disallowed_at'] as String).toLocal(),
+        selfReportedSignups: (m['self_reported_signups'] as num?)?.toInt(),
       );
 }
 
@@ -112,11 +115,17 @@ class ShiftService {
     return Shift.fromMap(Map<String, dynamic>.from(row as Map));
   }
 
-  Future<Shift?> clockOut({double? lat, double? lon, double? accuracyM}) async {
+  Future<Shift?> clockOut({
+    double? lat,
+    double? lon,
+    double? accuracyM,
+    required int signups,
+  }) async {
     final row = await _client.rpc('clock_out', params: {
       'p_lat': lat,
       'p_lon': lon,
       'p_accuracy_m': accuracyM,
+      'p_signups': signups,
     });
     if (row == null) return null;
     return Shift.fromMap(Map<String, dynamic>.from(row as Map));
