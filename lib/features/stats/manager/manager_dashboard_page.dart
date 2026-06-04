@@ -147,7 +147,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           ((await _supabase
                       .from('v_shifts_detail')
                       .select(
-                        'user_id, user_email, work_date_ny, duration_seconds, clock_in_at',
+                        'user_id, user_email, work_date_ny, duration_seconds, clock_in_at, is_bonus',
                       )
                       .gte('clock_in_at', shiftStartUtc)
                       .lt('clock_in_at', shiftEndUtc)
@@ -527,6 +527,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     final shiftKeys = <String>{};
     for (final row in _shiftRowsForKpi(isAllData: isAllData)) {
       if (_toNum(row['duration_seconds']) <= 0) continue;
+      if (row['is_bonus'] == true) continue;
       final key = _userDateKey(row);
       if (key != null) shiftKeys.add(key);
     }
