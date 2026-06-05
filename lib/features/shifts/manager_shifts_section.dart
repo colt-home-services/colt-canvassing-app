@@ -418,6 +418,7 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
   late DateTime _clockIn;
   DateTime? _clockOut;
   final TextEditingController _signupsCtrl = TextEditingController();
+  late String _initialSignupsText;
   bool _saving = false;
   bool _disallowed = false;
   String? _error;
@@ -431,6 +432,7 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
     _disallowed = widget.row['disallowed_at'] != null;
     final signups = widget.row['self_reported_signups'];
     if (signups != null) _signupsCtrl.text = (signups as num).toInt().toString();
+    _initialSignupsText = _signupsCtrl.text;
   }
 
   @override
@@ -482,12 +484,17 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
       setState(() => _error = 'Clock out must be after clock in.');
       return;
     }
-    // Sign-ups is required (0 is valid). A blank field is rejected rather than
-    // silently treated as zero or no-change.
-    final signups = int.tryParse(_signupsCtrl.text.trim());
-    if (signups == null || signups < 0) {
-      setState(() => _error = 'Enter a sign-up count (0 or more).');
-      return;
+    // Only validate/send sign-ups if the field was actually changed; an
+    // untouched field leaves the stored count alone (SQL coalesce). When
+    // touched it's required (0 is valid) — a blank/invalid entry is rejected.
+    final touched = _signupsCtrl.text != _initialSignupsText;
+    int? signups;
+    if (touched) {
+      signups = int.tryParse(_signupsCtrl.text.trim());
+      if (signups == null || signups < 0) {
+        setState(() => _error = 'Enter a sign-up count (0 or more).');
+        return;
+      }
     }
     setState(() {
       _saving = true;
