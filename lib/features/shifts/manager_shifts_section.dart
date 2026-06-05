@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ManagerShiftsSection extends StatefulWidget {
@@ -117,6 +118,43 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
     if (updated == true) _fetch();
   }
 
+  /// Two independent edit indicators in a single cell: a clock icon for time
+  /// edits (edited_at) and a number icon for sign-up edits (signups_edited_at),
+  /// each lit only when that timestamp is set, with its edit time in a tooltip.
+  /// Unedited shifts show a single dash to keep the column uncluttered.
+  Widget _editedCell(dynamic timesAt, dynamic signupsAt) {
+    final timesEdited = timesAt != null;
+    final signupsEdited = signupsAt != null;
+    if (!timesEdited && !signupsEdited) {
+      return const Icon(Icons.remove, color: Colors.black26, size: 18);
+    }
+    String tip(String label, dynamic ts) =>
+        '$label edited · ${_fmtDateTime(DateTime.parse(ts.toString()))}';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Tooltip(
+          message: timesEdited ? tip('Times', timesAt) : 'Times not edited',
+          child: Icon(
+            Icons.schedule,
+            size: 16,
+            color: timesEdited ? Colors.orange.shade700 : Colors.black12,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Tooltip(
+          message:
+              signupsEdited ? tip('Sign-ups', signupsAt) : 'Sign-ups not edited',
+          child: Icon(
+            Icons.tag,
+            size: 16,
+            color: signupsEdited ? Colors.blue.shade700 : Colors.black12,
+          ),
+        ),
+      ],
+    );
+  }
+
   String _fmtDateTime(DateTime d) {
     final local = d.toLocal();
     final m = local.month.toString().padLeft(2, '0');
@@ -216,7 +254,6 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                         ? null
                         : DateTime.parse(clockOutRaw as String);
                     final seconds = (r['duration_seconds'] ?? 0) as num;
-                    final edited = r['edited_at'] != null;
                     final autoClosed = (r['auto_closed'] as bool?) ?? false;
                     final disallowed = r['disallowed_at'] != null;
                     final isBonus = (r['is_bonus'] as bool?) ?? false;
@@ -344,12 +381,9 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                           ),
                         ),
                         DataCell(
-                          Icon(
-                            edited ? Icons.edit_note : Icons.remove,
-                            color: edited
-                                ? Colors.orange.shade700
-                                : Colors.black26,
-                            size: 18,
+                          _editedCell(
+                            r['edited_at'],
+                            r['signups_edited_at'],
                           ),
                         ),
                         isBonus ? DataCell(SizedBox.shrink()):
@@ -383,6 +417,8 @@ class _ShiftEditorDialog extends StatefulWidget {
 class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
   late DateTime _clockIn;
   DateTime? _clockOut;
+  final TextEditingController _signupsCtrl = TextEditingController();
+  late String _initialSignupsText;
   bool _saving = false;
   bool _disallowed = false;
   String? _error;
@@ -394,6 +430,15 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
     final co = widget.row['clock_out_at'];
     _clockOut = co == null ? null : DateTime.parse(co as String).toLocal();
     _disallowed = widget.row['disallowed_at'] != null;
+    final signups = widget.row['self_reported_signups'];
+    if (signups != null) _signupsCtrl.text = (signups as num).toInt().toString();
+    _initialSignupsText = _signupsCtrl.text;
+  }
+
+  @override
+  void dispose() {
+    _signupsCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _toggleDisallow() async {
@@ -439,6 +484,18 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
       setState(() => _error = 'Clock out must be after clock in.');
       return;
     }
+    // Only validate/send sign-ups if the field was actually changed; an
+    // untouched field leaves the stored count alone (SQL coalesce). When
+    // touched it's required (0 is valid) — a blank/invalid entry is rejected.
+    final touched = _signupsCtrl.text != _initialSignupsText;
+    int? signups;
+    if (touched) {
+      signups = int.tryParse(_signupsCtrl.text.trim());
+      if (signups == null || signups < 0) {
+        setState(() => _error = 'Enter a sign-up count (0 or more).');
+        return;
+      }
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -450,6 +507,7 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
           'p_shift_id': widget.row['id'],
           'p_clock_in_at': _clockIn.toUtc().toIso8601String(),
           'p_clock_out_at': _clockOut?.toUtc().toIso8601String(),
+          'p_signups': signups,
         },
       );
       if (!mounted) return;
@@ -573,6 +631,22 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
                           : () => setState(() => _clockOut = null),
                       child: const Text('Clear'),
                     ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _signupsCtrl,
+              enabled: !_saving,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: false,
+                signed: false,
+              ),
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Sign-ups',
+                hintText: 'e.g. 3',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
             ),
             if (_error != null) ...[
               const SizedBox(height: 10),

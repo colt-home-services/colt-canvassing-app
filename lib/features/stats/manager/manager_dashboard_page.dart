@@ -147,7 +147,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           ((await _supabase
                       .from('v_shifts_detail')
                       .select(
-                        'user_id, user_email, work_date_ny, duration_seconds, clock_in_at',
+                        'user_id, user_email, work_date_ny, duration_seconds, clock_in_at, is_bonus',
                       )
                       .gte('clock_in_at', shiftStartUtc)
                       .lt('clock_in_at', shiftEndUtc)
@@ -198,7 +198,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       ); // Leaderboard always shows all canvassers
 
       // Fetch and analyze detailed event data (async)
-      _analyzeTimeAndZIPPerformance();
+      _analyzeTimeAndZIPPerformance(allRows);
 
       setState(() {
         _rows = filteredRows;
@@ -430,9 +430,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     List<Map<String, dynamic>> rows, {
     bool isAllData = false,
   }) {
-    final shiftSeconds = _sumShiftSeconds(isAllData: isAllData);
+    // ZIP is a knock-level attribute; a shift has no ZIP, so when a ZIP filter
+    // is active we can't attribute shift hours to it. Drop shift hours entirely
+    // (knock-hours-only mode) — Total Hours then equals Knock Hours and the
+    // shift/knock overlap is moot. Never applies to the all-data totals.
+    final dropShifts = !isAllData && _selectedZipCodes.isNotEmpty;
+    final shiftSeconds = dropShifts ? 0 : _sumShiftSeconds(isAllData: isAllData);
     final shiftHours = shiftSeconds / 3600;
-    final overlapCount = _countShiftKnockOverlap(isAllData: isAllData);
+    final overlapCount =
+        dropShifts ? 0 : _countShiftKnockOverlap(isAllData: isAllData);
 
     if (rows.isEmpty) {
       final emptyData = {
@@ -527,6 +533,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     final shiftKeys = <String>{};
     for (final row in _shiftRowsForKpi(isAllData: isAllData)) {
       if (_toNum(row['duration_seconds']) <= 0) continue;
+      if (row['is_bonus'] == true) continue;
       final key = _userDateKey(row);
       if (key != null) shiftKeys.add(key);
     }
@@ -596,7 +603,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     });
   }
 
-  Future<void> _analyzeTimeAndZIPPerformance() async {
+  Future<void> _analyzeTimeAndZIPPerformance(
+    List<Map<String, dynamic>> allRows,
+  ) async {
     if (_range == null) return;
 
     try {
@@ -612,8 +621,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
       // Apply canvasser filter
       if (_selectedCanvassers.isNotEmpty) {
-        // Get user IDs for selected emails
-        final userIds = _rows
+        // Translate selected emails to user_ids. Use the complete unfiltered
+        // rows (allRows): a lookup table must hold every selectable canvasser,
+        // so it can't be the filtered set (which may have dropped a selected
+        // canvasser) nor the _rows field (stale until setState runs later).
+        final userIds = allRows
             .where((r) => _selectedCanvassers.contains(r['user_email']))
             .map((r) => r['user_id'].toString())
             .where((id) => id.isNotEmpty)
@@ -1145,6 +1157,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
     if (kpiData.isEmpty) return const SizedBox.shrink();
 
+    // Knock-hours-only mode: a ZIP filter can't attribute shift hours, so the
+    // Shift Hours tile is hidden and Total Hours reflects knock hours only.
+    final zipFiltered = _selectedZipCodes.isNotEmpty;
+
     final signupsForCost = _toNum(kpiData['signups']).toDouble();
     final answersForRate = _toNum(kpiData['answers']).toDouble();
     final signupRate = answersForRate > 0 ? signupsForCost / answersForRate : 0.0;
@@ -1265,11 +1281,12 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   Icons.schedule,
                   highlighted: true,
                 ),
-                _buildKPIMetric(
-                  'Shift Hours',
-                  _fmtHours(kpiData['shift_hours']),
-                  Icons.access_time,
-                ),
+                if (!zipFiltered)
+                  _buildKPIMetric(
+                    'Shift Hours',
+                    _fmtHours(kpiData['shift_hours']),
+                    Icons.access_time,
+                  ),
                 _buildKPIMetric(
                   'Knock Hours',
                   _fmtHours(kpiData['knock_hours']),
