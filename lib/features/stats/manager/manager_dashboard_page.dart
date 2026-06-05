@@ -430,9 +430,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     List<Map<String, dynamic>> rows, {
     bool isAllData = false,
   }) {
-    final shiftSeconds = _sumShiftSeconds(isAllData: isAllData);
+    // ZIP is a knock-level attribute; a shift has no ZIP, so when a ZIP filter
+    // is active we can't attribute shift hours to it. Drop shift hours entirely
+    // (knock-hours-only mode) — Total Hours then equals Knock Hours and the
+    // shift/knock overlap is moot. Never applies to the all-data totals.
+    final dropShifts = !isAllData && _selectedZipCodes.isNotEmpty;
+    final shiftSeconds = dropShifts ? 0 : _sumShiftSeconds(isAllData: isAllData);
     final shiftHours = shiftSeconds / 3600;
-    final overlapCount = _countShiftKnockOverlap(isAllData: isAllData);
+    final overlapCount =
+        dropShifts ? 0 : _countShiftKnockOverlap(isAllData: isAllData);
 
     if (rows.isEmpty) {
       final emptyData = {
@@ -1146,6 +1152,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
     if (kpiData.isEmpty) return const SizedBox.shrink();
 
+    // Knock-hours-only mode: a ZIP filter can't attribute shift hours, so the
+    // Shift Hours tile is hidden and Total Hours reflects knock hours only.
+    final zipFiltered = _selectedZipCodes.isNotEmpty;
+
     final signupsForCost = _toNum(kpiData['signups']).toDouble();
     final answersForRate = _toNum(kpiData['answers']).toDouble();
     final signupRate = answersForRate > 0 ? signupsForCost / answersForRate : 0.0;
@@ -1266,11 +1276,12 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   Icons.schedule,
                   highlighted: true,
                 ),
-                _buildKPIMetric(
-                  'Shift Hours',
-                  _fmtHours(kpiData['shift_hours']),
-                  Icons.access_time,
-                ),
+                if (!zipFiltered)
+                  _buildKPIMetric(
+                    'Shift Hours',
+                    _fmtHours(kpiData['shift_hours']),
+                    Icons.access_time,
+                  ),
                 _buildKPIMetric(
                   'Knock Hours',
                   _fmtHours(kpiData['knock_hours']),
