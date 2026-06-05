@@ -198,7 +198,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       ); // Leaderboard always shows all canvassers
 
       // Fetch and analyze detailed event data (async)
-      _analyzeTimeAndZIPPerformance();
+      _analyzeTimeAndZIPPerformance(allRows);
 
       setState(() {
         _rows = filteredRows;
@@ -603,7 +603,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     });
   }
 
-  Future<void> _analyzeTimeAndZIPPerformance() async {
+  Future<void> _analyzeTimeAndZIPPerformance(
+    List<Map<String, dynamic>> allRows,
+  ) async {
     if (_range == null) return;
 
     try {
@@ -619,8 +621,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
       // Apply canvasser filter
       if (_selectedCanvassers.isNotEmpty) {
-        // Get user IDs for selected emails
-        final userIds = _rows
+        // Translate selected emails to user_ids. Use the complete unfiltered
+        // rows (allRows): a lookup table must hold every selectable canvasser,
+        // so it can't be the filtered set (which may have dropped a selected
+        // canvasser) nor the _rows field (stale until setState runs later).
+        final userIds = allRows
             .where((r) => _selectedCanvassers.contains(r['user_email']))
             .map((r) => r['user_id'].toString())
             .where((id) => id.isNotEmpty)
