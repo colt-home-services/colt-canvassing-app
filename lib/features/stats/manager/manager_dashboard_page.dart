@@ -1273,6 +1273,12 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   highlighted: true,
                 ),
                 _buildKPIMetric(
+                  'Shift signups',
+                  kpiData['shift_signups']?.toStringAsFixed(0) ?? '0',
+                  Icons.check_circle,
+                  highlighted: true,
+                ),
+                _buildKPIMetric(
                   'Signup Rate',
                   answersForRate > 0
                       ? '${(signupRate * 100).toStringAsFixed(1)}%'
