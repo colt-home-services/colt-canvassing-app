@@ -182,6 +182,9 @@ class _CanvasserShiftsHistoryPageState
         final shifts = grouped[key]!;
         final dayTotal = shifts.fold<Duration>(
             Duration.zero, (sum, s) => sum + s.duration);
+        final signupTotal = shifts.fold<int>(
+          0, (sum, s) => sum + (s.selfReportedSignups ?? 0)
+        )
         final headerDate = shifts.first.clockInAt;
 
         return Padding(
