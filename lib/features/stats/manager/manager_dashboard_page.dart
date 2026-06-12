@@ -431,14 +431,22 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     bool isAllData = false,
   }) {
     // ZIP is a knock-level attribute; a shift has no ZIP, so when a ZIP filter
-    // is active we can't attribute shift hours to it. Drop shift hours entirely
-    // (knock-hours-only mode) — Total Hours then equals Knock Hours and the
-    // shift/knock overlap is moot. Never applies to the all-data totals.
+    // is active we can't attribute shift hours or shift signups to it. Drop
+    // both entirely (knock-only mode) — Total Hours then equals Knock Hours,
+    // the shift/knock overlap is moot, and the cost metrics stay consistent
+    // (no shift audit cost without shift labor). Never applies to the
+    // all-data totals.
     final dropShifts = !isAllData && _selectedZipCodes.isNotEmpty;
-    final shiftSeconds = dropShifts ? 0 : _sumShiftSeconds(isAllData: isAllData);
+    final shiftSeconds = dropShifts
+        ? 0
+        : _sumShiftSeconds(isAllData: isAllData);
     final shiftHours = shiftSeconds / 3600;
-    final overlapCount =
-        dropShifts ? 0 : _countShiftKnockOverlap(isAllData: isAllData);
+    final shiftSignups = dropShifts
+        ? 0
+        : totalReportedSignups(isAllData: isAllData);
+    final overlapCount = dropShifts
+        ? 0
+        : _countShiftKnockOverlap(isAllData: isAllData);
 
     if (rows.isEmpty) {
       final emptyData = {
@@ -454,7 +462,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         'shift_hours': shiftHours,
         'total_hours': shiftHours,
         'overlap_count': overlapCount,
-        'shift_signups': 0,
+        'shift_signups': shiftSignups,
       };
       if (isAllData) {
         _kpiTotalsAllData = emptyData;
@@ -477,13 +485,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       0,
       (s, r) => s + _toNum(r['billable_hours']),
     );
-    
 
     final answerRate = totalKnocks > 0 ? totalAnswers / totalKnocks : 0.0;
     final knocksPerHour = knockHours > 0 ? totalKnocks / knockHours : 0.0;
     final answersPerHour = knockHours > 0 ? totalAnswers / knockHours : 0.0;
-
-    final shiftSignups = totalReportedSignups(isAllData: isAllData);
 
     final data = {
       'knocks': totalKnocks,
@@ -506,8 +511,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     } else {
       _kpiTotals = data;
     }
-
-    
   }
 
   Iterable<Map<String, dynamic>> _shiftRowsForKpi({required bool isAllData}) {
@@ -529,13 +532,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     });
   }
 
-  num totalReportedSignups({required bool isAllData}){
-    return _shiftRowsForKpi(isAllData: isAllData).fold<num>(
-      0,(s,r)
-      {
-        return s+ _toNum(r['self_reported_signups']);
-      }
-    );
+  num totalReportedSignups({required bool isAllData}) {
+    return _shiftRowsForKpi(isAllData: isAllData).fold<num>(0, (s, r) {
+      return s + _toNum(r['self_reported_signups']);
+    });
   }
 
   String? _userDateKey(Map<String, dynamic> row) {
@@ -1177,13 +1177,18 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     // Shift Hours tile is hidden and Total Hours reflects knock hours only.
     final zipFiltered = _selectedZipCodes.isNotEmpty;
 
-    final signupsForCost = _toNum(kpiData['signups']).toDouble();
+    final knockSignups = _toNum(kpiData['signups']).toDouble();
+    final shiftSignups = _toNum(kpiData['shift_signups']).toDouble();
     final answersForRate = _toNum(kpiData['answers']).toDouble();
-    final signupRate = answersForRate > 0 ? signupsForCost / answersForRate : 0.0;
+    // Signup Rate stays knock-only: shift signups have no answered doors.
+    final signupRate = answersForRate > 0 ? knockSignups / answersForRate : 0.0;
     final totalHoursForCost = _toNum(kpiData['total_hours']).toDouble();
+    final signupsForCost = knockSignups + shiftSignups;
     final convertedAudits = signupsForCost * _conversionRate / 100;
     final totalCost = totalHoursForCost * 25 + convertedAudits * 30;
-    final costPerAudit = convertedAudits > 0 ? totalCost / convertedAudits : 0.0;
+    final costPerAudit = convertedAudits > 0
+        ? totalCost / convertedAudits
+        : 0.0;
 
     final overlapCount = _toNum(kpiData['overlap_count']).toInt();
     final overlapLabel = overlapCount == 1
@@ -1272,12 +1277,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   Icons.check_circle,
                   highlighted: true,
                 ),
-                _buildKPIMetric(
-                  'Shift signups',
-                  kpiData['shift_signups']?.toStringAsFixed(0) ?? '0',
-                  Icons.check_circle,
-                  highlighted: true,
-                ),
+                if (!zipFiltered)
+                  _buildKPIMetric(
+                    'Shift signups',
+                    kpiData['shift_signups']?.toStringAsFixed(0) ?? '0',
+                    Icons.check_circle,
+                    highlighted: true,
+                  ),
                 _buildKPIMetric(
                   'Signup Rate',
                   answersForRate > 0
