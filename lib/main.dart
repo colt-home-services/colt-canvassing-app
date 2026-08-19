@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/data/towns_cache.dart';
 import 'core/theme/chs_colors.dart';
 import 'features/auth/sign_in_page.dart';
+import 'features/auth/update_password_page.dart';
 import 'features/canvassing/towns_page.dart';
 
 
@@ -62,7 +63,15 @@ class _AuthGate extends StatelessWidget {
           );
         }
 
-        final session = snapshot.data!.session;
+        final authState = snapshot.data!;
+        final session = authState.session;
+
+        // A password-reset link signs the user in with a real session, so
+        // this check MUST come before the session check below — otherwise
+        // they land in the app with their old password still active.
+        if (authState.event == AuthChangeEvent.passwordRecovery) {
+          return const UpdatePasswordPage();
+        }
 
         if (session != null) {
           // Warm the towns cache so the first TownsPage open is instant.

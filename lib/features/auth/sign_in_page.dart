@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../canvassing/towns_page.dart';
+import 'widgets/auth_text_field.dart';
 
 class SignInPage extends StatefulWidget {
   const SignInPage({super.key});
@@ -23,6 +24,14 @@ class _SignInPageState extends State<SignInPage> {
   bool _isLoading = false;
 
   static const Color _primaryPurple = Color(0xFF4B39EF);
+
+  /// Where Supabase sends the user after they click the reset-password
+  /// email. This matches the project's Site URL, which Supabase allows as a
+  /// redirect target by default; any other target would need adding under
+  /// Auth -> URL Configuration -> Redirect URLs or the link bounces here
+  /// anyway.
+  static const String _passwordResetRedirect =
+      'https://colt-home-services.github.io/colt-canvassing-app/';
 
   SupabaseClient get _supabase => Supabase.instance.client;
 
@@ -74,6 +83,85 @@ class _SignInPageState extends State<SignInPage> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _handleForgotPassword() async {
+    final email = await _promptForResetEmail();
+    if (email == null || email.isEmpty) return;
+
+    setState(() => _isLoading = true);
+    try {
+      await _supabase.auth.resetPasswordForEmail(
+        email,
+        redirectTo: _passwordResetRedirect,
+      );
+    } on AuthException catch (e) {
+      if (mounted) _showSnack(e.message);
+      return;
+    } catch (e) {
+      if (mounted) _showSnack('Unexpected error. Please try again.');
+      return;
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+
+    // Deliberately generic: never reveal whether an account exists.
+    if (mounted) {
+      _showSnack('If that email has an account, a reset link is on its way.');
+    }
+  }
+
+  /// Small dialog so the user can correct the email before we send.
+  Future<String?> _promptForResetEmail() {
+    final controller = TextEditingController(
+      text: _emailController.text.trim(),
+    );
+
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('Reset password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Enter your email and we'll send you a link to set a new "
+                'password.',
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 18),
+              AuthTextField(
+                label: 'Email',
+                controller: controller,
+                keyboardType: TextInputType.emailAddress,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(controller.text.trim()),
+              child: const Text(
+                'Send link',
+                style: TextStyle(color: _primaryPurple),
+              ),
+            ),
+          ],
+        );
+      },
+    ).whenComplete(controller.dispose);
   }
 
   Future<void> _handleSignUp() async {
@@ -264,6 +352,21 @@ class _SignInPageState extends State<SignInPage> {
                     },
                   ),
 
+                  if (_isSignInTab)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _isLoading ? null : _handleForgotPassword,
+                        child: const Text(
+                          'Forgot password?',
+                          style: TextStyle(
+                            color: _primaryPurple,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+
                   if (!_isSignInTab) ...[
                     const SizedBox(height: 18),
                     _buildRoundedField(
@@ -348,48 +451,12 @@ class _SignInPageState extends State<SignInPage> {
     VoidCallback? onToggleObscure,
     TextInputType keyboardType = TextInputType.text,
   }) {
-    return SizedBox(
-      width: double.infinity,
-      child: TextField(
-        controller: controller,
-        obscureText: obscureText,
-        keyboardType: keyboardType,
-        decoration: InputDecoration(
-          labelText: label,
-          labelStyle: TextStyle(color: Colors.grey.shade600),
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 18,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(40),
-            borderSide: BorderSide(
-              color: Colors.grey.shade300,
-              width: 1.2,
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(40),
-            borderSide: const BorderSide(
-              color: _primaryPurple,
-              width: 1.6,
-            ),
-          ),
-          suffixIcon: onToggleObscure == null
-              ? null
-              : IconButton(
-                  icon: Icon(
-                    obscureText
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                    color: Colors.grey.shade600,
-                  ),
-                  onPressed: onToggleObscure,
-                ),
-        ),
-      ),
+    return AuthTextField(
+      label: label,
+      controller: controller,
+      obscureText: obscureText,
+      onToggleObscure: onToggleObscure,
+      keyboardType: keyboardType,
     );
   }
 }
