@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../canvassing/towns_page.dart';
+import '../../goals/weekly_goal_service.dart';
 import '../../shifts/manager_shifts_page.dart';
 import 'bucket_drilldown_page.dart';
 import 'route_map_dialog.dart';
@@ -13,8 +15,21 @@ class ManagerDashboardPage extends StatefulWidget {
   State<ManagerDashboardPage> createState() => _ManagerDashboardPageState();
 }
 
+class _WeeklyGoalSelection {
+  const _WeeklyGoalSelection({
+    required this.targetAll,
+    required this.goalSignups,
+    this.email,
+  });
+
+  final bool targetAll;
+  final int goalSignups;
+  final String? email;
+}
+
 class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   final _supabase = Supabase.instance.client;
+  late final WeeklyGoalService _weeklyGoalService;
 
   DateTimeRange? _range;
   final List<String> _selectedCanvassers = [];
@@ -28,6 +43,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   List<Map<String, dynamic>> _rows = [];
 
   List<String> _availableCanvassers = [];
+  final Map<String, String> _canvasserIdByEmail = {};
   bool _showFilters = false;
   late TextEditingController _zipTextController;
 
@@ -43,6 +59,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   List<Map<String, dynamic>> _hourlyPerformance = [];
   List<Map<String, dynamic>> _dailyPerformance = [];
   List<Map<String, dynamic>> _zipPerformance = [];
+  Map<String, WeeklySignupGoal> _weeklyGoalsByUser = {};
+  DateTime? _weeklyGoalStart;
 
   // Conversion rate (manager-entered percentage, persisted locally)
   double _conversionRate = 0.0;
@@ -52,6 +70,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   void initState() {
     super.initState();
     final now = DateTime.now();
+    _weeklyGoalService = WeeklyGoalService(_supabase);
+    _weeklyGoalStart = _weeklyGoalService.currentWeekStart();
     _range = DateTimeRange(
       start: now.subtract(const Duration(days: 14)),
       end: now,
@@ -80,23 +100,26 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
   Future<void> _loadFilterOptions() async {
     try {
-      // Load unique canvassers
-      final canvassersData = await _supabase
-          .from('v_manager_daily_summary')
-          .select('user_email')
-          .order('user_email');
+      final canvassersData = await _supabase.rpc('manager_list_canvassers');
 
-      final canvassers =
-          (canvassersData as List)
-              .map((e) => (e['user_email'] ?? '').toString())
-              .where((e) => e.isNotEmpty)
-              .toSet()
-              .toList()
-            ..sort();
+      final canvasserIdsByEmail = <String, String>{};
+      for (final item in canvassersData as List) {
+        final row = Map<String, dynamic>.from(item as Map);
+        final email = (row['user_email'] ?? '').toString();
+        final userId = (row['user_id'] ?? '').toString();
+        if (email.isNotEmpty && userId.isNotEmpty) {
+          canvasserIdsByEmail[email] = userId;
+        }
+      }
+      final canvassers = canvasserIdsByEmail.keys.toList()..sort();
 
       setState(() {
         _availableCanvassers = canvassers;
+        _canvasserIdByEmail
+          ..clear()
+          ..addAll(canvasserIdsByEmail);
       });
+      await _fetchWeeklyGoals();
     } catch (e) {
       debugPrint('Error loading filter options: $e');
     }
@@ -169,6 +192,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         for (final row in knockDateRows)
           if (_userDateKey(row) != null) _userDateKey(row)!,
       };
+
+      await _fetchWeeklyGoals(extraRows: allRows);
 
       // Apply canvasser filter
       var filteredRows = allRows;
@@ -424,6 +449,38 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     if (v == null) return 0;
     if (v is num) return v;
     return num.tryParse(v.toString()) ?? 0;
+  }
+
+  String? _matchingCanvasserEmail(String value) {
+    final target = value.trim().toLowerCase();
+    if (target.isEmpty) return null;
+    for (final email in _availableCanvassers) {
+      if (email.toLowerCase() == target) return email;
+    }
+    return null;
+  }
+
+  Future<void> _fetchWeeklyGoals({
+    List<Map<String, dynamic>> extraRows = const [],
+  }) async {
+    final currentWeekStart = _weeklyGoalService.currentWeekStart();
+    final weeklyGoalUserIds = {
+      ...extraRows
+          .map((r) => (r['user_id'] ?? '').toString())
+          .where((id) => id.isNotEmpty),
+      ..._canvasserIdByEmail.values.where((id) => id.isNotEmpty),
+    }.toList();
+
+    final goals = await _weeklyGoalService.fetchGoalsWithProgress(
+      weekStart: currentWeekStart,
+      userIds: weeklyGoalUserIds,
+      performanceSource: 'v_manager_daily_summary',
+    );
+    if (!mounted) return;
+    setState(() {
+      _weeklyGoalsByUser = goals;
+      _weeklyGoalStart = currentWeekStart;
+    });
   }
 
   void _calculateKPITotals(
@@ -1464,6 +1521,422 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     );
   }
 
+  Future<void> _showWeeklyGoalsDialog() async {
+    final goalController = TextEditingController();
+    final emailController = TextEditingController();
+    String? emailErrorText;
+    String? goalErrorText;
+    var targetAll = true;
+
+    final selection = await showDialog<_WeeklyGoalSelection>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final weekStart =
+                _weeklyGoalStart ?? _weeklyGoalService.currentWeekStart();
+            final weekEnd = weekStart.add(const Duration(days: 6));
+
+            void submit() {
+              final parsed = int.tryParse(goalController.text.trim());
+              if (parsed == null || parsed < 0) {
+                setDialogState(() {
+                  goalErrorText = 'Enter a whole number 0 or higher';
+                });
+                return;
+              }
+
+              if (targetAll) {
+                if (_canvasserIdByEmail.isEmpty) {
+                  setDialogState(() {
+                    goalErrorText = 'No canvassers found';
+                  });
+                  return;
+                }
+                Navigator.of(context).pop(
+                  _WeeklyGoalSelection(targetAll: true, goalSignups: parsed),
+                );
+                return;
+              }
+
+              final rawEmail = emailController.text.trim();
+              final matchingEmail = _matchingCanvasserEmail(rawEmail);
+              if (matchingEmail == null) {
+                setDialogState(() {
+                  emailErrorText = 'Enter an existing canvasser email';
+                });
+                return;
+              }
+
+              Navigator.of(context).pop(
+                _WeeklyGoalSelection(
+                  targetAll: false,
+                  goalSignups: parsed,
+                  email: matchingEmail,
+                ),
+              );
+            }
+
+            return AlertDialog(
+              title: const Text('Set Weekly Signup Goal'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${weekStart.month}/${weekStart.day} - ${weekEnd.month}/${weekEnd.day}',
+                    style: TextStyle(
+                      color: Colors.amber.shade900,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                        value: true,
+                        label: Text('Everyone'),
+                        icon: Icon(Icons.groups_outlined),
+                      ),
+                      ButtonSegment(
+                        value: false,
+                        label: Text('One person'),
+                        icon: Icon(Icons.person_search_outlined),
+                      ),
+                    ],
+                    selected: {targetAll},
+                    onSelectionChanged: (values) {
+                      setDialogState(() {
+                        targetAll = values.first;
+                        emailErrorText = null;
+                        goalErrorText = null;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if (!targetAll) ...[
+                    Autocomplete<String>(
+                      optionsBuilder: (textEditingValue) {
+                        final query = textEditingValue.text
+                            .trim()
+                            .toLowerCase();
+                        if (query.isEmpty) {
+                          return const Iterable<String>.empty();
+                        }
+                        return _availableCanvassers
+                            .where(
+                              (email) => email.toLowerCase().contains(query),
+                            )
+                            .take(8);
+                      },
+                      onSelected: (email) {
+                        emailController.text = email;
+                        setDialogState(() {
+                          emailErrorText = null;
+                        });
+                      },
+                      fieldViewBuilder:
+                          (
+                            context,
+                            textEditingController,
+                            focusNode,
+                            onFieldSubmitted,
+                          ) {
+                            return TextField(
+                              controller: textEditingController,
+                              focusNode: focusNode,
+                              decoration: InputDecoration(
+                                labelText: 'Canvasser email',
+                                hintText: 'Start typing an email',
+                                prefixIcon: const Icon(Icons.search),
+                                suffixIcon: textEditingController.text.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        tooltip: 'Clear email',
+                                        icon: const Icon(Icons.clear),
+                                        onPressed: () {
+                                          textEditingController.clear();
+                                          emailController.clear();
+                                          setDialogState(() {
+                                            emailErrorText = null;
+                                          });
+                                        },
+                                      ),
+                                filled: true,
+                                fillColor: Colors.grey.shade50,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                    color: Colors.grey.shade300,
+                                  ),
+                                ),
+                              ),
+                              onChanged: (_) {
+                                emailController.text =
+                                    textEditingController.text;
+                                setDialogState(() {
+                                  emailErrorText = null;
+                                });
+                              },
+                              onSubmitted: (_) => onFieldSubmitted(),
+                            );
+                          },
+                      optionsViewBuilder: (context, onSelected, options) {
+                        return Align(
+                          alignment: Alignment.topLeft,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Material(
+                              elevation: 8,
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              clipBehavior: Clip.antiAlias,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxHeight: 260,
+                                  maxWidth: 520,
+                                  minWidth: 420,
+                                ),
+                                child: ListView.separated(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  shrinkWrap: true,
+                                  itemCount: options.length,
+                                  separatorBuilder: (_, _) => Divider(
+                                    height: 1,
+                                    color: Colors.grey.shade100,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final email = options.elementAt(index);
+                                    final goal =
+                                        _weeklyGoalsByUser[_canvasserIdByEmail[email]];
+                                    final goalText =
+                                        goal != null && goal.goalSignups > 0
+                                        ? '${goal.actualSignups}/${goal.goalSignups}'
+                                        : 'No goal';
+                                    return InkWell(
+                                      onTap: () => onSelected(email),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 10,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            CircleAvatar(
+                                              radius: 15,
+                                              backgroundColor:
+                                                  Colors.amber.shade100,
+                                              child: Icon(
+                                                Icons.person_outline,
+                                                size: 18,
+                                                color: Colors.amber.shade900,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                email,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.grey.shade100,
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                goalText,
+                                                style: TextStyle(
+                                                  color: Colors.grey.shade700,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    if (emailErrorText != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, left: 12),
+                        child: Text(
+                          emailErrorText!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                  ],
+                  TextField(
+                    controller: goalController,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Sign-up goal',
+                      errorText: goalErrorText,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => submit(),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: 720,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 280),
+                      child: _buildWeeklyGoalsTable(compact: true),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(onPressed: submit, child: const Text('Save')),
+              ],
+            );
+          },
+        );
+      },
+    );
+    goalController.dispose();
+    emailController.dispose();
+
+    if (selection == null) return;
+
+    try {
+      final weekStart =
+          _weeklyGoalStart ?? _weeklyGoalService.currentWeekStart();
+      if (selection.targetAll) {
+        await _weeklyGoalService.setGoals(
+          userIds: _canvasserIdByEmail.values,
+          weekStart: weekStart,
+          goalSignups: selection.goalSignups,
+        );
+      } else {
+        final email = selection.email!;
+        await _weeklyGoalService.setGoal(
+          userId: _canvasserIdByEmail[email]!,
+          weekStart: weekStart,
+          goalSignups: selection.goalSignups,
+        );
+      }
+      await _fetch();
+      if (!mounted) return;
+      final target = selection.targetAll ? 'everyone' : selection.email!;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Weekly goal saved for $target')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not save weekly goal: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildWeeklyGoalsTable({bool compact = false}) {
+    final canvassers = _availableCanvassers
+        .where((email) => (_canvasserIdByEmail[email] ?? '').isNotEmpty)
+        .toList();
+
+    if (canvassers.isEmpty) return const Text('No canvassers found yet.');
+
+    return SingleChildScrollView(
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          headingRowHeight: compact ? 40 : null,
+          dataRowMinHeight: compact ? 38 : null,
+          dataRowMaxHeight: compact ? 44 : null,
+          columns: const [
+            DataColumn(label: Text('Canvasser')),
+            DataColumn(label: Text('Goal')),
+            DataColumn(label: Text('Signed Up')),
+            DataColumn(label: Text('Remaining')),
+            DataColumn(label: Text('Progress')),
+          ],
+          rows: canvassers.map((email) {
+            final userId = _canvasserIdByEmail[email]!;
+            final goal = _weeklyGoalsByUser[userId];
+            final goalSignups = goal?.goalSignups ?? 0;
+            final actualSignups = goal?.actualSignups ?? 0;
+            final remaining = goal == null || goalSignups == 0
+                ? null
+                : goal.remainingSignups;
+            final progress = goal?.progress ?? 0.0;
+
+            return DataRow(
+              cells: [
+                DataCell(Text(email)),
+                DataCell(Text(goalSignups > 0 ? '$goalSignups' : 'Not set')),
+                DataCell(Text('$actualSignups')),
+                DataCell(
+                  Text(
+                    remaining == null
+                        ? '-'
+                        : remaining <= 0
+                        ? 'Complete'
+                        : '$remaining left',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: remaining != null && remaining <= 0
+                          ? Colors.amber.shade900
+                          : null,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  SizedBox(
+                    width: 160,
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 8,
+                      backgroundColor: Colors.grey.shade200,
+                      color: remaining != null && remaining <= 0
+                          ? Colors.amber.shade700
+                          : Colors.blue.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
   void _showLeaderboardModal() {
     showDialog(
       context: context,
@@ -2255,6 +2728,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   label: const Text('Shifts'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.green.shade700,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _showWeeklyGoalsDialog,
+                  icon: const Icon(Icons.flag_outlined),
+                  label: const Text('Weekly Goals'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.amber.shade900,
                   ),
                 ),
                 const SizedBox(width: 12),
