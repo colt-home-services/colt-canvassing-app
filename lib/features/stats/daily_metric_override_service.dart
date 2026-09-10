@@ -11,7 +11,7 @@ class DailyMetricOverrideService {
     String? userId,
   }) async {
     var query = _client
-        .from('canvasser_daily_metric_overrides')
+        .from('manager_daily_metric_overrides')
         .select('user_id, work_date_ny, total_knocks, signed_ups')
         .gte('work_date_ny', _fmtYmd(start))
         .lte('work_date_ny', _fmtYmd(end));

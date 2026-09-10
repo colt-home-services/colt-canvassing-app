@@ -58,7 +58,7 @@ class WeeklyGoalService {
     final weekEndStr = fmtYmd(weekEndExclusive(weekStart));
 
     var goalsQuery = _client
-        .from('weekly_signup_goals')
+        .from('manager_weekly_signup_goals')
         .select('user_id, week_start_ny, goal_signups')
         .eq('week_start_ny', weekStartStr);
     if (userIds != null && userIds.isNotEmpty) {
@@ -81,7 +81,7 @@ class WeeklyGoalService {
         .toList();
 
     var overridesQuery = _client
-        .from('canvasser_daily_metric_overrides')
+        .from('manager_daily_metric_overrides')
         .select('user_id, work_date_ny, signed_ups')
         .gte('work_date_ny', weekStartStr)
         .lt('work_date_ny', weekEndStr);
@@ -188,7 +188,7 @@ class WeeklyGoalService {
     required DateTime weekStart,
     required int goalSignups,
   }) async {
-    await _client.from('weekly_signup_goals').upsert({
+    await _client.from('manager_weekly_signup_goals').upsert({
       'user_id': userId,
       'week_start_ny': fmtYmd(weekStart),
       'goal_signups': goalSignups,
@@ -214,7 +214,7 @@ class WeeklyGoalService {
     if (rows.isEmpty) return;
 
     await _client
-        .from('weekly_signup_goals')
+        .from('manager_weekly_signup_goals')
         .upsert(rows, onConflict: 'user_id,week_start_ny');
   }
 

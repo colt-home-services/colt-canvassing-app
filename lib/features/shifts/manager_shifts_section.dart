@@ -143,8 +143,9 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
         ),
         const SizedBox(width: 8),
         Tooltip(
-          message:
-              signupsEdited ? tip('Sign-ups', signupsAt) : 'Sign-ups not edited',
+          message: signupsEdited
+              ? tip('Sign-ups', signupsAt)
+              : 'Sign-ups not edited',
           child: Icon(
             Icons.tag,
             size: 16,
@@ -264,6 +265,7 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                         ? Colors.black45
                         : Colors.black87;
                     final userId = (r['user_id'] ?? '').toString();
+                    final isOwnShift = userId == _supabase.auth.currentUser?.id;
                     final workDateNy = (r['work_date_ny'] ?? '').toString();
                     final knockKey = '$userId|$workDateNy';
                     final hasComparableDate =
@@ -277,7 +279,8 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                           ? WidgetStateProperty.resolveWith(
                               (_) => Colors.green.shade50,
                             )
-                          : knockedThatDay ? WidgetStateProperty.resolveWith(
+                          : knockedThatDay
+                          ? WidgetStateProperty.resolveWith(
                               (_) => Colors.red.shade50,
                             )
                           : null,
@@ -371,8 +374,8 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                             r['self_reported_signups'] == null
                                 ? '—'
                                 : (r['self_reported_signups'] as num)
-                                    .toInt()
-                                    .toString(),
+                                      .toInt()
+                                      .toString(),
                             style: TextStyle(
                               fontWeight: FontWeight.w600,
                               color: mutedColor,
@@ -381,19 +384,22 @@ class _ManagerShiftsSectionState extends State<ManagerShiftsSection> {
                           ),
                         ),
                         DataCell(
-                          _editedCell(
-                            r['edited_at'],
-                            r['signups_edited_at'],
-                          ),
+                          _editedCell(r['edited_at'], r['signups_edited_at']),
                         ),
-                        isBonus ? DataCell(SizedBox.shrink()):
-                        DataCell(
-                          IconButton(
-                            icon: const Icon(Icons.edit, size: 18),
-                            tooltip: 'Override',
-                            onPressed: () => _openEditor(r),
+                        if (isBonus)
+                          const DataCell(SizedBox.shrink())
+                        else
+                          DataCell(
+                            IconButton(
+                              icon: const Icon(Icons.edit, size: 18),
+                              tooltip: isOwnShift
+                                  ? 'Managers cannot edit their own hours'
+                                  : 'Override',
+                              onPressed: isOwnShift
+                                  ? null
+                                  : () => _openEditor(r),
+                            ),
                           ),
-                        ),
                       ],
                     );
                   }).toList(),
@@ -431,7 +437,8 @@ class _ShiftEditorDialogState extends State<_ShiftEditorDialog> {
     _clockOut = co == null ? null : DateTime.parse(co as String).toLocal();
     _disallowed = widget.row['disallowed_at'] != null;
     final signups = widget.row['self_reported_signups'];
-    if (signups != null) _signupsCtrl.text = (signups as num).toInt().toString();
+    if (signups != null)
+      _signupsCtrl.text = (signups as num).toInt().toString();
     _initialSignupsText = _signupsCtrl.text;
   }
 
