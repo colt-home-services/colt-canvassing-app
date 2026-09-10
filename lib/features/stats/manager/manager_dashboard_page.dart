@@ -3,7 +3,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../canvassing/towns_page.dart';
 import '../../goals/weekly_goal_service.dart';
-import '../../shifts/clock_card.dart';
 import '../../shifts/manager_shifts_page.dart';
 import '../daily_metric_override_service.dart';
 import 'bucket_drilldown_page.dart';
@@ -2831,8 +2830,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               ],
             ),
             const SizedBox(height: 10),
-            const ClockCard(),
-            const SizedBox(height: 12),
 
             Row(
               children: [
