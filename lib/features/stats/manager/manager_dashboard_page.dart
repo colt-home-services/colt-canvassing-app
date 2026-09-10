@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../canvassing/towns_page.dart';
 import '../../goals/weekly_goal_service.dart';
 import '../../shifts/manager_shifts_page.dart';
+import '../daily_metric_override_service.dart';
 import 'bucket_drilldown_page.dart';
 import 'route_map_dialog.dart';
 import '../../../core/data/conversion_rate_cache.dart';
@@ -30,6 +31,7 @@ class _WeeklyGoalSelection {
 class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   final _supabase = Supabase.instance.client;
   late final WeeklyGoalService _weeklyGoalService;
+  late final DailyMetricOverrideService _overrideService;
 
   DateTimeRange? _range;
   final List<String> _selectedCanvassers = [];
@@ -61,6 +63,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   List<Map<String, dynamic>> _zipPerformance = [];
   Map<String, WeeklySignupGoal> _weeklyGoalsByUser = {};
   DateTime? _weeklyGoalStart;
+  Map<String, Map<String, dynamic>> _dailyMetricOverrides = {};
 
   // Conversion rate (manager-entered percentage, persisted locally)
   double _conversionRate = 0.0;
@@ -71,6 +74,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     super.initState();
     final now = DateTime.now();
     _weeklyGoalService = WeeklyGoalService(_supabase);
+    _overrideService = DailyMetricOverrideService(_supabase);
     _weeklyGoalStart = _weeklyGoalService.currentWeekStart();
     _range = DateTimeRange(
       start: now.subtract(const Duration(days: 14)),
@@ -113,6 +117,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       }
       final canvassers = canvasserIdsByEmail.keys.toList()..sort();
 
+      if (!mounted) return;
       setState(() {
         _availableCanvassers = canvassers;
         _canvasserIdByEmail
@@ -146,10 +151,19 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           .gte('work_date_ny', startStr)
           .lte('work_date_ny', endStr);
 
-      var allRows =
+      final rawRows =
           (await query.order('work_date_ny', ascending: false) as List)
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
+
+      _dailyMetricOverrides = await _overrideService.fetchOverrides(
+        start: _range!.start,
+        end: _range!.end,
+      );
+      final allRows = _overrideService.applyOverrides(
+        rawRows,
+        _dailyMetricOverrides,
+      );
 
       // Store unfiltered data
       _allRows = allRows;
@@ -225,11 +239,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       // Fetch and analyze detailed event data (async)
       _analyzeTimeAndZIPPerformance(allRows);
 
+      if (!mounted) return;
       setState(() {
         _rows = filteredRows;
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -327,6 +343,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       initialDateRange: _range,
     );
     if (picked != null) {
+      if (!mounted) return;
       setState(() => _range = picked);
       await _fetch();
     }
@@ -1518,6 +1535,142 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showDailyMetricEditDialog({
+    required Map<String, dynamic> row,
+    required String field,
+    required String label,
+  }) async {
+    final userId = (row['user_id'] ?? '').toString();
+    final email = (row['user_email'] ?? '').toString();
+    final workDate = (row['work_date_ny'] ?? '').toString();
+    if (userId.isEmpty || workDate.isEmpty) return;
+
+    final currentValue = _toNum(row[field]).toInt();
+    final controller = TextEditingController(text: currentValue.toString());
+    String? errorText;
+
+    final value = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('Edit $label'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$email • $workDate',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: label,
+                      errorText: errorText,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) {
+                      final parsed = int.tryParse(controller.text.trim());
+                      if (parsed == null || parsed < 0) {
+                        setDialogState(() {
+                          errorText = 'Enter a whole number 0 or higher';
+                        });
+                        return;
+                      }
+                      Navigator.of(context).pop(parsed);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final parsed = int.tryParse(controller.text.trim());
+                    if (parsed == null || parsed < 0) {
+                      setDialogState(() {
+                        errorText = 'Enter a whole number 0 or higher';
+                      });
+                      return;
+                    }
+                    Navigator.of(context).pop(parsed);
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    controller.dispose();
+
+    if (value == null) return;
+
+    try {
+      await _overrideService.setOverride(
+        userId: userId,
+        workDateNy: workDate,
+        totalKnocks: field == 'total_knocks' ? value : null,
+        signedUps: field == 'signed_ups' ? value : null,
+      );
+      await _fetch();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$label updated for $email on $workDate')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not update $label: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _editableMetricCell(
+    Map<String, dynamic> row,
+    String field,
+    String label, {
+    TextStyle? valueStyle,
+  }) {
+    final userId = (row['user_id'] ?? '').toString();
+    final workDate = (row['work_date_ny'] ?? '').toString();
+    final override = _dailyMetricOverrides['$userId|$workDate'];
+    final isEdited = override?[field] != null;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(_num(row[field]), style: valueStyle),
+        const SizedBox(width: 4),
+        IconButton(
+          tooltip: isEdited ? 'Edit manager override' : 'Set manager override',
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+          padding: EdgeInsets.zero,
+          icon: Icon(
+            isEdited ? Icons.edit_note : Icons.edit_outlined,
+            size: 17,
+            color: isEdited ? Colors.orange.shade800 : Colors.black54,
+          ),
+          onPressed: () =>
+              _showDailyMetricEditDialog(row: row, field: field, label: label),
+        ),
+      ],
     );
   }
 
@@ -2837,10 +2990,21 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                           ),
                         ),
                         DataCell(Text(_num(r['valid_buckets']))),
-                        DataCell(Text(_num(r['total_knocks']))),
+                        DataCell(
+                          _editableMetricCell(
+                            r,
+                            'total_knocks',
+                            'Doors Knocked',
+                          ),
+                        ),
                         DataCell(Text(_num(r['answers']))),
                         DataCell(
-                          Text(_num(r['signed_ups']), style: emphasisStyle),
+                          _editableMetricCell(
+                            r,
+                            'signed_ups',
+                            'Sign-ups',
+                            valueStyle: emphasisStyle,
+                          ),
                         ),
                         DataCell(Text(_pct(r['answer_rate']))),
                         DataCell(Text(_pct(r['signup_rate']))),

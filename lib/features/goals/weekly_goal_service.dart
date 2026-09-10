@@ -70,13 +70,25 @@ class WeeklyGoalService {
 
     var perfQuery = _client
         .from(performanceSource)
-        .select('user_id, signed_ups')
+        .select('user_id, work_date_ny, signed_ups')
         .gte('work_date_ny', weekStartStr)
         .lt('work_date_ny', weekEndStr);
     if (userIds != null && userIds.isNotEmpty) {
       perfQuery = perfQuery.inFilter('user_id', userIds);
     }
     final perfRows = ((await perfQuery) as List)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+
+    var overridesQuery = _client
+        .from('canvasser_daily_metric_overrides')
+        .select('user_id, work_date_ny, signed_ups')
+        .gte('work_date_ny', weekStartStr)
+        .lt('work_date_ny', weekEndStr);
+    if (userIds != null && userIds.isNotEmpty) {
+      overridesQuery = overridesQuery.inFilter('user_id', userIds);
+    }
+    final overrideRows = ((await overridesQuery) as List)
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
 
@@ -93,12 +105,31 @@ class WeeklyGoalService {
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
 
-    final knockSignupsByUser = <String, int>{};
+    final knockSignupsByUserDate = <String, int>{};
     for (final row in perfRows) {
       final userId = (row['user_id'] ?? '').toString();
-      if (userId.isEmpty) continue;
+      final workDate = (row['work_date_ny'] ?? '').toString();
+      if (userId.isEmpty || workDate.isEmpty) continue;
+      final key = _key(userId, workDate);
+      knockSignupsByUserDate[key] =
+          (knockSignupsByUserDate[key] ?? 0) + _toInt(row['signed_ups']);
+    }
+
+    for (final row in overrideRows) {
+      if (row['signed_ups'] == null) continue;
+      final userId = (row['user_id'] ?? '').toString();
+      final workDate = (row['work_date_ny'] ?? '').toString();
+      if (userId.isEmpty || workDate.isEmpty) continue;
+      knockSignupsByUserDate[_key(userId, workDate)] = _toInt(
+        row['signed_ups'],
+      );
+    }
+
+    final knockSignupsByUser = <String, int>{};
+    for (final entry in knockSignupsByUserDate.entries) {
+      final userId = entry.key.split('|').first;
       knockSignupsByUser[userId] =
-          (knockSignupsByUser[userId] ?? 0) + _toInt(row['signed_ups']);
+          (knockSignupsByUser[userId] ?? 0) + entry.value;
     }
 
     final shiftSignupsByUser = <String, int>{};
@@ -192,4 +223,6 @@ class WeeklyGoalService {
     if (value is num) return value.toInt();
     return int.tryParse(value.toString()) ?? 0;
   }
+
+  String _key(String userId, String workDateNy) => '$userId|$workDateNy';
 }
