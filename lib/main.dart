@@ -3,20 +3,22 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/data/canvassing_location_cache.dart';
 import 'core/data/towns_cache.dart';
 import 'core/theme/chs_colors.dart';
 import 'features/auth/sign_in_page.dart';
 import 'features/auth/update_password_page.dart';
+import 'features/canvassing/house_details_page.dart';
+import 'features/canvassing/houses_page.dart';
+import 'features/canvassing/streets_page.dart';
 import 'features/canvassing/towns_page.dart';
-
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
     url: 'https://wohhowvhvmatnraomcsd.supabase.co',
-    anonKey:
-        'sb_publishable_jkXpbnJLw8nsWchfqfPgXw_8b85FH5l',
+    anonKey: 'sb_publishable_jkXpbnJLw8nsWchfqfPgXw_8b85FH5l',
     authOptions: const FlutterAuthClientOptions(
       authFlowType: AuthFlowType.pkce, // ✅ recommended for Flutter Web
     ),
@@ -76,8 +78,38 @@ class _AuthGate extends StatelessWidget {
         if (session != null) {
           // Warm the towns cache so the first TownsPage open is instant.
           unawaited(TownsCache.refresh(supabase).catchError((_) => <String>[]));
-          // ✅ User is logged in → route based on role
-          return const TownsPage();
+          return FutureBuilder<SavedCanvassingLocation?>(
+            future: CanvassingLocationCache.read(),
+            builder: (context, locationSnapshot) {
+              if (locationSnapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              final location = locationSnapshot.data;
+              if (location != null &&
+                  location.hasTown &&
+                  location.hasStreet &&
+                  location.hasAddress) {
+                return HouseDetailsPage(
+                  town: location.town!,
+                  street: location.street!,
+                  address: location.address!,
+                );
+              }
+              if (location != null && location.hasTown && location.hasStreet) {
+                return HousesPage(
+                  town: location.town!,
+                  street: location.street!,
+                );
+              }
+              if (location != null && location.hasTown) {
+                return StreetsPage(town: location.town!);
+              }
+              return const TownsPage();
+            },
+          );
         }
 
         // ❌ Not logged in → Sign in

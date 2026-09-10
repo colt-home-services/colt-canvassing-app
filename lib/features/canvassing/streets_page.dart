@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:chs_companion/core/data/canvassing_location_cache.dart';
 import 'package:chs_companion/core/theme/chs_colors.dart';
 import 'houses_page.dart';
+import 'towns_page.dart';
 
 class StreetsPage extends StatefulWidget {
   final String town;
@@ -65,7 +67,18 @@ class _StreetsPageState extends State<StreetsPage> {
     return streets;
   }
 
-
+  Future<void> _goBack() async {
+    await CanvassingLocationCache.clear();
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacement(
+        MaterialPageRoute(builder: (_) => const TownsPage()),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -74,14 +87,11 @@ class _StreetsPageState extends State<StreetsPage> {
       appBar: AppBar(
         title: Text(
           'Streets in ${widget.town}',
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _goBack,
         ),
         actions: const [
           Padding(
@@ -108,23 +118,15 @@ class _StreetsPageState extends State<StreetsPage> {
                 ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(32),
-                  borderSide: const BorderSide(
-                    color: kChsPrimary,
-                    width: 1.5,
-                  ),
+                  borderSide: const BorderSide(color: kChsPrimary, width: 1.5),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(32),
-                  borderSide: const BorderSide(
-                    color: Color(0xFFE0E3E7),
-                  ),
+                  borderSide: const BorderSide(color: Color(0xFFE0E3E7)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(32),
-                  borderSide: const BorderSide(
-                    color: kChsPrimary,
-                    width: 1.5,
-                  ),
+                  borderSide: const BorderSide(color: kChsPrimary, width: 1.5),
                 ),
               ),
             ),
@@ -168,10 +170,8 @@ class _StreetsPageState extends State<StreetsPage> {
 
                 return ListView.separated(
                   itemCount: streets.length,
-                  separatorBuilder: (_, __) => const Divider(
-                    height: 1,
-                    color: Color(0xFFE0E3E7),
-                  ),
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1, color: Color(0xFFE0E3E7)),
                   itemBuilder: (context, index) {
                     final street = streets[index];
                     return Material(
@@ -189,13 +189,16 @@ class _StreetsPageState extends State<StreetsPage> {
                           Icons.chevron_right,
                           color: kChsTextSecondary,
                         ),
-                        onTap: () {
+                        onTap: () async {
+                          await CanvassingLocationCache.saveStreet(
+                            town: widget.town,
+                            street: street,
+                          );
+                          if (!context.mounted) return;
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => HousesPage(
-                                town: widget.town,
-                                street: street,
-                              ),
+                              builder: (_) =>
+                                  HousesPage(town: widget.town, street: street),
                             ),
                           );
                         },
@@ -211,4 +214,3 @@ class _StreetsPageState extends State<StreetsPage> {
     );
   }
 }
-

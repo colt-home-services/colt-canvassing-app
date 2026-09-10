@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/data/canvassing_location_cache.dart';
 import '../../core/routing/role_gate_page.dart';
 import '../../core/data/towns_cache.dart';
 import '../resources/resources_page.dart';
@@ -276,7 +277,9 @@ class _TownsPageState extends State<TownsPage> {
             style: const TextStyle(fontSize: 16, color: Colors.black),
           ),
           trailing: const Icon(Icons.chevron_right, color: Colors.black54),
-          onTap: () {
+          onTap: () async {
+            await CanvassingLocationCache.saveTown(town);
+            if (!context.mounted) return;
             Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => StreetsPage(town: town)));
