@@ -2,10 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/data/canvassing_location_cache.dart';
 import '../../core/routing/role_gate_page.dart';
 import '../../core/data/towns_cache.dart';
+import '../resources/resources_page.dart';
 import '../shifts/clock_card.dart';
-
 
 import 'streets_page.dart';
 
@@ -133,7 +134,10 @@ class _TownsPageState extends State<TownsPage> {
         backgroundColor: primaryPurple,
         foregroundColor: Colors.white,
         elevation: 0,
-        title: const Text('Towns', style: TextStyle(fontWeight: FontWeight.w600)),
+        title: const Text(
+          'Towns',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -144,9 +148,18 @@ class _TownsPageState extends State<TownsPage> {
             tooltip: 'Dashboard',
             icon: const Icon(Icons.dashboard_outlined),
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const RoleGatePage()),
-              );
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const RoleGatePage()));
+            },
+          ),
+          IconButton(
+            tooltip: 'Resources',
+            icon: const Icon(Icons.folder_shared_outlined),
+            onPressed: () {
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const ResourcesPage()));
             },
           ),
           TextButton(
@@ -156,9 +169,9 @@ class _TownsPageState extends State<TownsPage> {
                 // AuthGate will automatically redirect to SignInPage
               } catch (e) {
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Logout failed: $e')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Logout failed: $e')));
               }
             },
             child: const Text(
@@ -180,7 +193,10 @@ class _TownsPageState extends State<TownsPage> {
           // Search bar
           Container(
             color: background,
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 12.0,
+            ),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
@@ -188,14 +204,23 @@ class _TownsPageState extends State<TownsPage> {
                 hintText: 'Search towns',
                 filled: true,
                 fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide(color: Colors.grey.shade300, width: 1.2),
+                  borderSide: BorderSide(
+                    color: Colors.grey.shade300,
+                    width: 1.2,
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
-                  borderSide: const BorderSide(color: primaryPurple, width: 1.6),
+                  borderSide: const BorderSide(
+                    color: primaryPurple,
+                    width: 1.6,
+                  ),
                 ),
               ),
             ),
@@ -242,7 +267,7 @@ class _TownsPageState extends State<TownsPage> {
 
     return ListView.separated(
       itemCount: _filteredTowns.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final town = _filteredTowns[index];
         return ListTile(
@@ -252,10 +277,12 @@ class _TownsPageState extends State<TownsPage> {
             style: const TextStyle(fontSize: 16, color: Colors.black),
           ),
           trailing: const Icon(Icons.chevron_right, color: Colors.black54),
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => StreetsPage(town: town)),
-            );
+          onTap: () async {
+            await CanvassingLocationCache.saveTown(town);
+            if (!context.mounted) return;
+            Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => StreetsPage(town: town)));
           },
         );
       },

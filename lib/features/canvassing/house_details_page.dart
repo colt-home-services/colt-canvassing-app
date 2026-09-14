@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:chs_companion/core/data/canvassing_location_cache.dart';
 import 'package:chs_companion/core/theme/chs_colors.dart';
 import 'package:chs_companion/core/utils/address_format.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:math' as Math;
+
+import 'houses_page.dart';
 
 class HouseDetailsPage extends StatefulWidget {
   final String address; // RAW DB key (keep)
@@ -34,6 +37,24 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
     super.initState();
     _houseFuture = _loadHouse();
     _eventsFuture = _loadEvents();
+  }
+
+  Future<void> _goBack() async {
+    await CanvassingLocationCache.saveStreet(
+      town: widget.town,
+      street: widget.street,
+    );
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => HousesPage(town: widget.town, street: widget.street),
+        ),
+      );
+    }
   }
 
   Future<Map<String, dynamic>> _loadHouse() async {
@@ -349,14 +370,26 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
         // While loading, show a scaffold with raw address (safe fallback)
         if (loading) {
           return Scaffold(
-            appBar: AppBar(title: Text(widget.address)),
+            appBar: AppBar(
+              title: Text(widget.address),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _goBack,
+              ),
+            ),
             body: const Center(child: CircularProgressIndicator()),
           );
         }
 
         if (snapshot.hasError) {
           return Scaffold(
-            appBar: AppBar(title: Text(widget.address)),
+            appBar: AppBar(
+              title: Text(widget.address),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: _goBack,
+              ),
+            ),
             body: Center(child: Text('Error loading house: ${snapshot.error}')),
           );
         }
@@ -372,7 +405,13 @@ class _HouseDetailsPageState extends State<HouseDetailsPage> {
         final signedUp = house['signed_up'] == true;
 
         return Scaffold(
-          appBar: AppBar(title: Text(displayAddress)),
+          appBar: AppBar(
+            title: Text(displayAddress),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: _goBack,
+            ),
+          ),
           body: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(

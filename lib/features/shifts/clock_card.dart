@@ -23,8 +23,6 @@ class _ClockCardState extends State<ClockCard> {
   List<Shift> _today = const [];
   bool _loading = true;
   bool _busy = false;
-  bool _hidden = false;
-  bool _roleChecked = false;
 
   Timer? _tick;
   final ValueNotifier<Duration> _elapsed = ValueNotifier(Duration.zero);
@@ -36,26 +34,6 @@ class _ClockCardState extends State<ClockCard> {
   }
 
   Future<void> _bootstrap() async {
-    final client = Supabase.instance.client;
-    final uid = client.auth.currentUser?.id;
-    if (uid != null) {
-      try {
-        final row = await client
-            .from('profiles')
-            .select('role')
-            .match({'user_id': uid})
-            .maybeSingle();
-        final role = (row?['role'] ?? '').toString();
-        if (role == 'manager') {
-          if (mounted) setState(() {
-            _hidden = true;
-            _roleChecked = true;
-          });
-          return;
-        }
-      } catch (_) {}
-    }
-    if (mounted) setState(() => _roleChecked = true);
     _refresh();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) => _updateElapsed());
   }
@@ -177,7 +155,6 @@ class _ClockCardState extends State<ClockCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_roleChecked || _hidden) return const SizedBox.shrink();
     if (_loading) {
       return _cardShell(
         child: const SizedBox(
@@ -359,9 +336,9 @@ class _ClockCardState extends State<ClockCard> {
   }
 
   void _openHistory() {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => const CanvasserShiftsHistoryPage(),
-    ));
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CanvasserShiftsHistoryPage()),
+    );
   }
 
   Widget _cardShell({required Widget child}) {
@@ -423,8 +400,7 @@ class _ClockCardState extends State<ClockCard> {
     return SizedBox(
       height: 44,
       child: ElevatedButton(
-        onPressed:
-            _busy ? null : (isClockedIn ? _onClockOut : _onClockIn),
+        onPressed: _busy ? null : (isClockedIn ? _onClockOut : _onClockIn),
         style: ElevatedButton.styleFrom(
           backgroundColor: bg,
           foregroundColor: fg,
@@ -444,10 +420,7 @@ class _ClockCardState extends State<ClockCard> {
             ? SizedBox(
                 width: 18,
                 height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: fg,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2, color: fg),
               )
             : Text(isClockedIn ? 'Clock out' : 'Clock in'),
       ),

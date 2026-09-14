@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../canvassing/towns_page.dart';
+import '../../goals/weekly_goal_service.dart';
 
 class CanvasserDashboardPage extends StatefulWidget {
   const CanvasserDashboardPage({super.key});
@@ -12,8 +13,10 @@ class CanvasserDashboardPage extends StatefulWidget {
 
 class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
   final _supabase = Supabase.instance.client;
+  late final WeeklyGoalService _weeklyGoalService;
 
   DateTimeRange? _range;
+  WeeklySignupGoal? _weeklyGoal;
 
   bool _loading = false;
   String? _error;
@@ -23,8 +26,12 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _range = DateTimeRange(start: now.subtract(const Duration(days: 14)), end: now);
+    _weeklyGoalService = WeeklyGoalService(_supabase);
+    final weekStart = _weeklyGoalService.currentWeekStart();
+    _range = DateTimeRange(
+      start: weekStart,
+      end: weekStart.add(const Duration(days: 6)),
+    );
     _fetch();
   }
 
@@ -104,11 +111,22 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
         _rows = joined;
         _loading = false;
       });
+      await _fetchWeeklyGoal();
     } catch (e) {
       setState(() {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _fetchWeeklyGoal() async {
+    try {
+      final goal = await _weeklyGoalService.fetchCurrentUserGoal();
+      if (!mounted) return;
+      setState(() => _weeklyGoal = goal);
+    } catch (e) {
+      debugPrint('Error loading weekly goal: $e');
     }
   }
 
@@ -154,23 +172,33 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
   }
 
   Widget _summaryCard() {
-    final totalHours = _rows.fold<num>(0, (s, r) => s + _toNum(r['billable_hours']));
-    final totalKnocks = _rows.fold<num>(0, (s, r) => s + _toNum(r['total_knocks']));
+    final totalHours = _rows.fold<num>(
+      0,
+      (s, r) => s + _toNum(r['billable_hours']),
+    );
+    final totalKnocks = _rows.fold<num>(
+      0,
+      (s, r) => s + _toNum(r['total_knocks']),
+    );
     final totalAnswers = _rows.fold<num>(0, (s, r) => s + _toNum(r['answers']));
-    final totalSignups = _rows.fold<num>(0, (s, r) => s + _toNum(r['signed_ups']));
+    final totalSignups = _rows.fold<num>(
+      0,
+      (s, r) => s + _toNum(r['signed_ups']),
+    );
 
     final answerRate = totalKnocks > 0 ? (totalAnswers / totalKnocks) : 0;
     final conversionRate = totalAnswers > 0 ? (totalSignups / totalAnswers) : 0;
 
-    TextStyle kLabel(BuildContext c) =>
-        Theme.of(c).textTheme.labelMedium!.copyWith(color: Colors.black54, fontWeight: FontWeight.w600);
-    TextStyle kValue(BuildContext c, {bool strong = false}) => Theme.of(c).textTheme.titleMedium!.copyWith(
-          fontWeight: strong ? FontWeight.w800 : FontWeight.w700,
-        );
+    TextStyle kLabel(BuildContext c) => Theme.of(c).textTheme.labelMedium!
+        .copyWith(color: Colors.black54, fontWeight: FontWeight.w600);
+    TextStyle kValue(BuildContext c, {bool strong = false}) => Theme.of(c)
+        .textTheme
+        .titleMedium!
+        .copyWith(fontWeight: strong ? FontWeight.w800 : FontWeight.w700);
 
     return Card(
       elevation: 0,
-      color: Colors.black.withOpacity(0.03),
+      color: Colors.black.withValues(alpha: 0.03),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -178,14 +206,236 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
           spacing: 18,
           runSpacing: 10,
           children: [
-            _metricBlock('Total Paid Time', '${totalHours.toStringAsFixed(2)} hrs', strong: true, labelStyle: kLabel(context), valueStyle: kValue(context, strong: true)),
-            _metricBlock('Doors Knocked', totalKnocks.toStringAsFixed(0), labelStyle: kLabel(context), valueStyle: kValue(context)),
-            _metricBlock('People Answered', totalAnswers.toStringAsFixed(0), labelStyle: kLabel(context), valueStyle: kValue(context)),
-            _metricBlock('Sign-ups', totalSignups.toStringAsFixed(0), strong: true, labelStyle: kLabel(context), valueStyle: kValue(context, strong: true)),
-            _metricBlock('Answer Rate', _pctFromRatio(answerRate), labelStyle: kLabel(context), valueStyle: kValue(context)),
-            _metricBlock('Conversion Rate', _pctFromRatio(conversionRate), labelStyle: kLabel(context), valueStyle: kValue(context)),
+            _metricBlock(
+              'Total Paid Time',
+              '${totalHours.toStringAsFixed(2)} hrs',
+              strong: true,
+              labelStyle: kLabel(context),
+              valueStyle: kValue(context, strong: true),
+            ),
+            _metricBlock(
+              'Doors Knocked',
+              totalKnocks.toStringAsFixed(0),
+              labelStyle: kLabel(context),
+              valueStyle: kValue(context),
+            ),
+            _metricBlock(
+              'People Answered',
+              totalAnswers.toStringAsFixed(0),
+              labelStyle: kLabel(context),
+              valueStyle: kValue(context),
+            ),
+            _metricBlock(
+              'Sign-ups',
+              totalSignups.toStringAsFixed(0),
+              strong: true,
+              labelStyle: kLabel(context),
+              valueStyle: kValue(context, strong: true),
+            ),
+            _metricBlock(
+              'Answer Rate',
+              _pctFromRatio(answerRate),
+              labelStyle: kLabel(context),
+              valueStyle: kValue(context),
+            ),
+            _metricBlock(
+              'Conversion Rate',
+              _pctFromRatio(conversionRate),
+              labelStyle: kLabel(context),
+              valueStyle: kValue(context),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _weeklyGoalStrip() {
+    final goal = _weeklyGoal;
+    if (goal == null || goal.goalSignups <= 0) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF7DA),
+          border: Border.all(color: const Color(0xFFE7C85C)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.flag_outlined, color: Colors.amber.shade900, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'No weekly signup goal set',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.amber.shade900,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final remaining = goal.remainingSignups;
+    final remainingText = remaining <= 0 ? 'Complete' : '$remaining left';
+    final weekEnd = goal.weekStartNy.add(const Duration(days: 6));
+    final progressLabel = '${goal.actualSignups}/${goal.goalSignups}';
+    final pct = (goal.progress * 100).round();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 600;
+        final label = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.amber.shade700,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.flag_outlined, color: Colors.white, size: 16),
+              SizedBox(width: 6),
+              Text(
+                'Weekly goal',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        );
+        final progress = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: LinearProgressIndicator(
+                    value: goal.progress,
+                    minHeight: 7,
+                    borderRadius: BorderRadius.circular(99),
+                    backgroundColor: Colors.white,
+                    color: Colors.amber.shade700,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '$pct%',
+                  style: TextStyle(
+                    color: Colors.amber.shade900,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${goal.weekStartNy.month}/${goal.weekStartNy.day} - ${weekEnd.month}/${weekEnd.day}',
+              style: TextStyle(
+                color: Colors.grey.shade700,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        );
+        final signedUpPill = _goalPill(
+          label: 'Signed up',
+          value: progressLabel,
+          strong: true,
+        );
+        final remainingPill = _goalPill(
+          label: remaining <= 0 ? 'Status' : 'Remaining',
+          value: remainingText,
+          strong: remaining <= 0,
+        );
+
+        return Tooltip(
+          message:
+              'Weekly signup goal: ${goal.weekStartNy.month}/${goal.weekStartNy.day} - ${weekEnd.month}/${weekEnd.day}',
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF7DA),
+              border: Border.all(color: const Color(0xFFE7C85C)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: compact
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      label,
+                      const SizedBox(height: 9),
+                      progress,
+                      const SizedBox(height: 9),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [signedUpPill, remainingPill],
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      label,
+                      const SizedBox(width: 14),
+                      Expanded(child: progress),
+                      const SizedBox(width: 14),
+                      signedUpPill,
+                      const SizedBox(width: 8),
+                      remainingPill,
+                    ],
+                  ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _goalPill({
+    required String label,
+    required String value,
+    bool strong = false,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 92),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.82),
+        border: Border.all(color: Colors.amber.shade200),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              color: strong ? Colors.amber.shade900 : Colors.black87,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -199,11 +449,73 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
   }) {
     return SizedBox(
       width: 170,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: labelStyle),
-        const SizedBox(height: 4),
-        Text(value, style: valueStyle),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: labelStyle),
+          const SizedBox(height: 4),
+          Text(value, style: valueStyle),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerRow(String email) {
+    return Row(
+      children: [
+        if (email.isNotEmpty)
+          Chip(avatar: const Icon(Icons.person, size: 18), label: Text(email)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            'These stats show your daily activity and paid time based on door-knocking events.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _dateAndGoalRow(String rangeLabel) {
+    final dateButton = ElevatedButton.icon(
+      onPressed: _pickRange,
+      icon: const Icon(Icons.date_range),
+      label: Text(rangeLabel),
+    );
+
+    final loading = _loading
+        ? const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 760) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [dateButton, const SizedBox(width: 12), loading]),
+              const SizedBox(height: 10),
+              _weeklyGoalStrip(),
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            dateButton,
+            const SizedBox(width: 12),
+            Expanded(child: _weeklyGoalStrip()),
+            if (_loading) ...[const SizedBox(width: 12), loading],
+          ],
+        );
+      },
     );
   }
 
@@ -216,7 +528,9 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
         ? 'Pick date range'
         : '${_range!.start.month}/${_range!.start.day} - ${_range!.end.month}/${_range!.end.day}';
 
-    final emphasisStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700);
+    final emphasisStyle = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700);
 
     return Scaffold(
       appBar: AppBar(
@@ -226,9 +540,9 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
             tooltip: 'Go to Towns',
             icon: const Icon(Icons.map_outlined),
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const TownsPage()),
-              );
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const TownsPage()));
             },
           ),
           IconButton(
@@ -248,43 +562,10 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Email + explainer
-            Row(
-              children: [
-                if (email.isNotEmpty)
-                  Chip(
-                    avatar: const Icon(Icons.person, size: 18),
-                    label: Text(email),
-                  ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'These stats show your daily activity and paid time based on door-knocking events.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54),
-                  ),
-                ),
-              ],
-            ),
+            _headerRow(email),
             const SizedBox(height: 10),
 
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _pickRange,
-                  icon: const Icon(Icons.date_range),
-                  label: Text(rangeLabel),
-                ),
-                if (_loading)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-              ],
-            ),
+            _dateAndGoalRow(rangeLabel),
             const SizedBox(height: 12),
 
             if (_error != null)
@@ -293,7 +574,7 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
-                  color: Colors.red.withOpacity(0.08),
+                  color: Colors.red.withValues(alpha: 0.08),
                 ),
                 child: Text('Error: $_error'),
               ),
@@ -328,12 +609,26 @@ class _CanvasserDashboardPageState extends State<CanvasserDashboardPage> {
                           return DataRow(
                             cells: [
                               DataCell(Text(_num(r['work_date_ny']))),
-                              DataCell(Text(_numFixed(r['billable_hours']), style: emphasisStyle)),
+                              DataCell(
+                                Text(
+                                  _numFixed(r['billable_hours']),
+                                  style: emphasisStyle,
+                                ),
+                              ),
                               DataCell(Text(_num(r['total_knocks']))),
                               DataCell(Text(_num(r['answers']))),
-                              DataCell(Text(_num(r['signed_ups']), style: emphasisStyle)),
-                              DataCell(Text(_pctFromRatio(_toNum(r['answer_rate'])))),
-                              DataCell(Text(_pctFromRatio(_toNum(r['signup_rate'])))),
+                              DataCell(
+                                Text(
+                                  _num(r['signed_ups']),
+                                  style: emphasisStyle,
+                                ),
+                              ),
+                              DataCell(
+                                Text(_pctFromRatio(_toNum(r['answer_rate']))),
+                              ),
+                              DataCell(
+                                Text(_pctFromRatio(_toNum(r['signup_rate']))),
+                              ),
                             ],
                           );
                         }).toList(),

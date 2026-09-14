@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:chs_companion/core/data/canvassing_location_cache.dart';
 import 'package:chs_companion/core/theme/chs_colors.dart';
 import 'package:chs_companion/core/utils/address_format.dart';
 
 import 'house_details_page.dart';
+import 'streets_page.dart';
+import 'towns_page.dart';
 
 class HousesPage extends StatefulWidget {
   final String town;
@@ -92,6 +95,32 @@ class _HousesPageState extends State<HousesPage> {
     return houses;
   }
 
+  Future<void> _goBack() async {
+    await CanvassingLocationCache.saveTown(widget.town);
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacement(
+        MaterialPageRoute(builder: (_) => StreetsPage(town: widget.town)),
+      );
+    }
+  }
+
+  Future<void> _goHome() async {
+    await CanvassingLocationCache.clear();
+    if (!mounted) return;
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.popUntil((route) => route.isFirst);
+    } else {
+      navigator.pushReplacement(
+        MaterialPageRoute(builder: (_) => const TownsPage()),
+      );
+    }
+  }
+
   String _statusForHouse(Map<String, dynamic> house) {
     final knocked = house['knocked'] == true;
     final answered = house['answered'] == true;
@@ -127,13 +156,13 @@ class _HousesPageState extends State<HousesPage> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _goBack,
         ),
         actions: [
           IconButton(
             tooltip: 'Back to Towns',
             icon: const Icon(Icons.home_outlined, color: Colors.white),
-            onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+            onPressed: _goHome,
           ),
         ],
       ),
@@ -265,6 +294,12 @@ class _HousesPageState extends State<HousesPage> {
                         ),
                         onTap: () async {
                           // Push to house details using RAW DB address key
+                          await CanvassingLocationCache.saveHouse(
+                            town: widget.town,
+                            street: widget.street,
+                            address: address,
+                          );
+                          if (!context.mounted) return;
                           await Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => HouseDetailsPage(
