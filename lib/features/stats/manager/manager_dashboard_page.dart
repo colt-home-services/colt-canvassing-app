@@ -2362,13 +2362,19 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       barrierColor: Colors.black.withValues(alpha: 0.5),
       builder: (context) {
         return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 24,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           child: Container(
             width: MediaQuery.of(context).size.width * 0.95,
             constraints: const BoxConstraints(maxWidth: 1000, maxHeight: 800),
-            padding: const EdgeInsets.all(24),
+            padding: EdgeInsets.all(
+              MediaQuery.of(context).size.width < 600 ? 16 : 24,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2376,12 +2382,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   children: [
                     const Icon(Icons.insights, color: Colors.blue, size: 28),
                     const SizedBox(width: 12),
-                    Text(
-                      'Performance Insights',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.bold),
+                    Expanded(
+                      child: Text(
+                        'Performance Insights',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
                     ),
-                    const Spacer(),
                     IconButton(
                       icon: const Icon(Icons.close),
                       onPressed: () => Navigator.of(context).pop(),
@@ -2423,49 +2430,146 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       return const SizedBox.shrink();
     }
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Best Hours
-        if (hasHourlyData)
-          Expanded(
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Best Hours',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showSideBySide = constraints.maxWidth >= 700;
+        final cardWidth = showSideBySide
+            ? (constraints.maxWidth - 12) / 2
+            : constraints.maxWidth;
+
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.start,
+          children: [
+            // Best Hours
+            if (hasHourlyData)
+              SizedBox(
+                width: cardWidth,
+                child: Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Best Hours',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 300),
+                          child: SingleChildScrollView(
+                            child: Column(
+                              children: _hourlyPerformance
+                                  .where(
+                                    (h) => (h['knocks'] as num) >= 5,
+                                  ) // Only show hours with activity
+                                  .map((h) {
+                                    final hour = h['hour'] as int;
+                                    final knocks = h['knocks'] as num;
+                                    final answers = h['answers'] as num;
+                                    final answerRate = h['answer_rate'] as num;
+                                    final hourLabel = hour == 0
+                                        ? '12 AM'
+                                        : hour < 12
+                                        ? '$hour AM'
+                                        : hour == 12
+                                        ? '12 PM'
+                                        : '${hour - 12} PM';
+
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 4,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          SizedBox(
+                                            width: 60,
+                                            child: Text(
+                                              hourLabel,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: LinearProgressIndicator(
+                                              value: answerRate > 0
+                                                  ? answerRate.toDouble()
+                                                  : 0.01,
+                                              backgroundColor:
+                                                  Colors.grey.shade200,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation(
+                                                    answerRate > 0.4
+                                                        ? Colors.green
+                                                        : answerRate > 0.25
+                                                        ? Colors.orange
+                                                        : Colors.red,
+                                                  ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          SizedBox(
+                                            width: 100,
+                                            child: Text(
+                                              '${answers.toInt()}/${knocks.toInt()} (${(answerRate * 100).toStringAsFixed(0)}%)',
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                              ),
+                                              textAlign: TextAlign.right,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  })
+                                  .toList(),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 300),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: _hourlyPerformance
+                  ),
+                ),
+              ),
+
+            // Best Days
+            if (hasDailyData)
+              SizedBox(
+                width: cardWidth,
+                child: Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Best Days',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        Column(
+                          children: _dailyPerformance
                               .where(
-                                (h) => (h['knocks'] as num) >= 5,
-                              ) // Only show hours with activity
-                              .map((h) {
-                                final hour = h['hour'] as int;
-                                final knocks = h['knocks'] as num;
-                                final answers = h['answers'] as num;
-                                final answerRate = h['answer_rate'] as num;
-                                final hourLabel = hour == 0
-                                    ? '12 AM'
-                                    : hour < 12
-                                    ? '$hour AM'
-                                    : hour == 12
-                                    ? '12 PM'
-                                    : '${hour - 12} PM';
+                                (d) => (d['knocks'] as num) >= 5,
+                              ) // Only show days with activity
+                              .map((d) {
+                                final dayName = d['day_name'] as String;
+                                final knocks = d['knocks'] as num;
+                                final answers = d['answers'] as num;
+                                final answerRate = d['answer_rate'] as num;
 
                                 return Padding(
                                   padding: const EdgeInsets.symmetric(
@@ -2474,9 +2578,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                                   child: Row(
                                     children: [
                                       SizedBox(
-                                        width: 60,
+                                        width: 80,
                                         child: Text(
-                                          hourLabel,
+                                          dayName,
                                           style: const TextStyle(fontSize: 12),
                                         ),
                                       ),
@@ -2510,94 +2614,14 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                               })
                               .toList(),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-
-        if (hasHourlyData && hasDailyData) const SizedBox(width: 12),
-
-        // Best Days
-        if (hasDailyData)
-          Expanded(
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Best Days',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Column(
-                      children: _dailyPerformance
-                          .where(
-                            (d) => (d['knocks'] as num) >= 5,
-                          ) // Only show days with activity
-                          .map((d) {
-                            final dayName = d['day_name'] as String;
-                            final knocks = d['knocks'] as num;
-                            final answers = d['answers'] as num;
-                            final answerRate = d['answer_rate'] as num;
-
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 80,
-                                    child: Text(
-                                      dayName,
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: LinearProgressIndicator(
-                                      value: answerRate > 0
-                                          ? answerRate.toDouble()
-                                          : 0.01,
-                                      backgroundColor: Colors.grey.shade200,
-                                      valueColor: AlwaysStoppedAnimation(
-                                        answerRate > 0.4
-                                            ? Colors.green
-                                            : answerRate > 0.25
-                                            ? Colors.orange
-                                            : Colors.red,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  SizedBox(
-                                    width: 100,
-                                    child: Text(
-                                      '${answers.toInt()}/${knocks.toInt()} (${(answerRate * 100).toStringAsFixed(0)}%)',
-                                      style: const TextStyle(fontSize: 11),
-                                      textAlign: TextAlign.right,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          })
-                          .toList(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-      ],
+          ],
+        );
+      },
     );
   }
 
@@ -2780,6 +2804,64 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       context,
     ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700);
 
+    final dashboardActions = <Widget>[
+      ElevatedButton.icon(
+        onPressed: _pickRange,
+        icon: const Icon(Icons.date_range),
+        label: Text(rangeLabel),
+      ),
+      const SizedBox(width: 12),
+      OutlinedButton.icon(
+        onPressed: () => setState(() => _showFilters = !_showFilters),
+        icon: Icon(_showFilters ? Icons.filter_list_off : Icons.filter_list),
+        label: Text(_showFilters ? 'Hide Filters' : 'Show Filters'),
+      ),
+      const SizedBox(width: 12),
+      OutlinedButton.icon(
+        onPressed: _leaderboardData.isNotEmpty ? _showLeaderboardModal : null,
+        icon: const Icon(Icons.emoji_events),
+        label: const Text('Leaderboard'),
+        style: OutlinedButton.styleFrom(foregroundColor: Colors.amber.shade700),
+      ),
+      const SizedBox(width: 8),
+      OutlinedButton.icon(
+        onPressed: _showInsightsModal,
+        icon: const Icon(Icons.insights),
+        label: const Text('Insights'),
+        style: OutlinedButton.styleFrom(foregroundColor: Colors.blue.shade700),
+      ),
+      const SizedBox(width: 8),
+      OutlinedButton.icon(
+        onPressed: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ManagerShiftsPage(initialRange: _range),
+            ),
+          );
+          if (!mounted) return;
+          _fetch();
+        },
+        icon: const Icon(Icons.access_time),
+        label: const Text('Shifts'),
+        style: OutlinedButton.styleFrom(foregroundColor: Colors.green.shade700),
+      ),
+      const SizedBox(width: 8),
+      OutlinedButton.icon(
+        onPressed: _showWeeklyGoalsDialog,
+        icon: const Icon(Icons.flag_outlined),
+        label: const Text('Weekly Goals'),
+        style: OutlinedButton.styleFrom(foregroundColor: Colors.amber.shade900),
+      ),
+      if (_hasActiveFilters()) ...[
+        const SizedBox(width: 12),
+        TextButton.icon(
+          onPressed: _clearFilters,
+          icon: const Icon(Icons.clear, size: 18),
+          label: const Text('Clear Filters'),
+        ),
+      ],
+    ];
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Manager Dashboard'),
@@ -2831,82 +2913,60 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             ),
             const SizedBox(height: 10),
 
-            Row(
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _pickRange,
-                  icon: const Icon(Icons.date_range),
-                  label: Text(rangeLabel),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: () => setState(() => _showFilters = !_showFilters),
-                  icon: Icon(
-                    _showFilters ? Icons.filter_list_off : Icons.filter_list,
-                  ),
-                  label: Text(_showFilters ? 'Hide Filters' : 'Show Filters'),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: _leaderboardData.isNotEmpty
-                      ? _showLeaderboardModal
-                      : null,
-                  icon: const Icon(Icons.emoji_events),
-                  label: const Text('Leaderboard'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.amber.shade700,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _showInsightsModal,
-                  icon: const Icon(Icons.insights),
-                  label: const Text('Insights'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.blue.shade700,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ManagerShiftsPage(initialRange: _range),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                // The full action row can exceed tablet and narrow desktop
+                // widths, especially when the clear-filters action is shown.
+                final isCompact = constraints.maxWidth < 1100;
+                final actions = Row(
+                  mainAxisSize: isCompact ? MainAxisSize.min : MainAxisSize.max,
+                  children: [
+                    ...dashboardActions,
+                    if (!isCompact) const Spacer(),
+                    if (_loading) ...[
+                      if (isCompact) const SizedBox(width: 12),
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       ),
-                    );
-                    if (!mounted) return;
-                    _fetch();
-                  },
-                  icon: const Icon(Icons.access_time),
-                  label: const Text('Shifts'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.green.shade700,
+                    ],
+                  ],
+                );
+
+                if (!isCompact) return actions;
+
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      iconTheme: const IconThemeData(size: 18),
+                      elevatedButtonTheme: ElevatedButtonThemeData(
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      outlinedButtonTheme: OutlinedButtonThemeData(
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      textButtonTheme: TextButtonThemeData(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ),
+                    child: actions,
                   ),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: _showWeeklyGoalsDialog,
-                  icon: const Icon(Icons.flag_outlined),
-                  label: const Text('Weekly Goals'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.amber.shade900,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                if (_hasActiveFilters())
-                  TextButton.icon(
-                    onPressed: _clearFilters,
-                    icon: const Icon(Icons.clear, size: 18),
-                    label: const Text('Clear Filters'),
-                  ),
-                const Spacer(),
-                if (_loading)
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-              ],
+                );
+              },
             ),
             if (_showFilters) ...[
               const SizedBox(height: 12),
