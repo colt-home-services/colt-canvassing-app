@@ -45,6 +45,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   List<Map<String, dynamic>> _rows = [];
 
   List<String> _availableCanvassers = [];
+  List<String> _availableFilterUsers = [];
   final Map<String, String> _canvasserIdByEmail = {};
   bool _showFilters = false;
   late TextEditingController _zipTextController;
@@ -120,6 +121,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       if (!mounted) return;
       setState(() {
         _availableCanvassers = canvassers;
+        _refreshAvailableFilterUsers();
         _canvasserIdByEmail
           ..clear()
           ..addAll(canvasserIdsByEmail);
@@ -192,6 +194,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   as List)
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
+      _refreshAvailableFilterUsers();
 
       final knockDateRows =
           ((await _supabase
@@ -477,6 +480,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     return null;
   }
 
+  void _refreshAvailableFilterUsers() {
+    _availableFilterUsers = {
+      ..._availableCanvassers,
+      ..._shiftRows
+          .map((row) => (row['user_email'] ?? '').toString().trim())
+          .where((email) => email.isNotEmpty),
+    }.toList()..sort();
+  }
+
   Future<void> _fetchWeeklyGoals({
     List<Map<String, dynamic>> extraRows = const [],
   }) async {
@@ -711,11 +723,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
       // Apply canvasser filter
       if (_selectedCanvassers.isNotEmpty) {
-        // Translate selected emails to user_ids. Use the complete unfiltered
-        // rows (allRows): a lookup table must hold every selectable canvasser,
-        // so it can't be the filtered set (which may have dropped a selected
-        // canvasser) nor the _rows field (stale until setState runs later).
-        final userIds = allRows
+        // Translate selected emails to user_ids using both performance and
+        // shift rows so manager-role users who logged hours are included.
+        final userIds = [...allRows, ..._shiftRows]
             .where((r) => _selectedCanvassers.contains(r['user_email']))
             .map((r) => r['user_id'].toString())
             .where((id) => id.isNotEmpty)
@@ -912,10 +922,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
   Widget _buildCanvasserDropdown() {
     return PopupMenuButton<String>(
-      tooltip: 'Select canvassers',
+      tooltip: 'Select team members',
       offset: const Offset(0, 40),
       itemBuilder: (context) {
-        return _availableCanvassers.map((email) {
+        return _availableFilterUsers.map((email) {
           final isSelected = _selectedCanvassers.contains(email);
           return PopupMenuItem<String>(
             value: email,
@@ -987,7 +997,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Canvassers',
+                      'Team Members',
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
