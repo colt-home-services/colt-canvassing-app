@@ -41,3 +41,7 @@ One open shift means hours can change after the snapshot. Total hours retain the
 The app refreshes before export and checks paginated row counts, but its multiple requests are not one transactional snapshot. This check therefore establishes correctness for the sampled snapshots, not a guarantee against concurrent edits during every future export.
 
 Raw snapshots and generated CSVs were kept in a temporary local directory, not added to the repository. The verification required no application-code changes.
+
+## Follow-up: per-canvasser payroll layout
+
+The row-per-canvasser export was implemented after the database snapshot above. The earlier 26-scenario reconciliation verifies the underlying range totals and the per-person source fields, but does **not** verify the newly introduced `canvasserPayrollRows` grouping/layout against that snapshot. The payroll-row layout has only been checked with static analysis so far; it has not been covered by tests or re-run against live data.

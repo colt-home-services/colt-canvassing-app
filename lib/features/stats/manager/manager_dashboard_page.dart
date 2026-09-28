@@ -44,7 +44,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
   bool _loading = false;
   String? _error;
-  DateTime? _refreshedAt;
   List<Map<String, dynamic>> _rows = [];
 
   List<String> _availableCanvassers = [];
@@ -237,7 +236,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
       if (!mounted) return false;
       setState(() {
-        _refreshedAt = DateTime.now().toUtc();
         _rows = filteredRows;
         _loading = false;
       });
@@ -938,38 +936,30 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   );
 
   Future<void> _exportSummary(String format) async {
-    // Never export cached or partially refreshed totals, including on failure.
-    if (_loading || !await _fetch() || !mounted) return;
-    final rows = summaryExportRows(
-      totals: _hasActiveFilters() ? _kpiTotals : _kpiTotalsAllData,
+    if (_loading || !await _fetch() || !mounted || _range == null) return;
+    final rows = canvasserPayrollRows(
+      dailyRows: _rows,
+      shiftRows: _shiftRowsForKpi(isAllData: false).toList(),
+      knockDateKeys: _knockDateKeys,
       conversionRate: _conversionRate,
       zipFiltered: _selectedZipCodes.isNotEmpty,
-      filters: {
-        'Database refresh completed (UTC)': _refreshedAt!.toIso8601String(),
-        'Work date timezone': 'America/New_York',
-        'Source':
-            'v_manager_daily_summary with saved manager overrides; allowed v_shifts_detail rows',
-        'Open shifts included': _selectedZipCodes.isNotEmpty
-            ? '0'
-            : _shiftRowsForKpi(
-                isAllData: !_hasActiveFilters(),
-              ).where((row) => row['clock_out_at'] == null).length.toString(),
-        'Start date': _fmtYmd(_range!.start),
-        'End date': _fmtYmd(_range!.end),
-        'Team members': _selectedCanvassers.isEmpty
-            ? 'All'
-            : _selectedCanvassers.join(', '),
-        'ZIP codes': _selectedZipCodes.isEmpty
-            ? 'All'
-            : _selectedZipCodes.join(', '),
-        'Filter scope':
-            'ZIP filters select full days with matching activity and exclude shifts.',
-      },
+      range: DateRangeStrings(
+        start: _fmtYmd(_range!.start),
+        end: _fmtYmd(_range!.end),
+      ),
     );
+    if (rows.length == 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No canvassers with hours in this date range.'),
+        ),
+      );
+      return;
+    }
     try {
       if (format == 'download') {
         downloadCsv(
-          'canvassing-summary_${_fmtYmd(_range!.start)}_${_fmtYmd(_range!.end)}.csv',
+          'canvasser-payroll_${_fmtYmd(_range!.start)}_${_fmtYmd(_range!.end)}.csv',
           encodeSpreadsheet(rows),
         );
       } else {
@@ -986,8 +976,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           SnackBar(
             content: Text(
               format == 'sheets'
-                  ? 'Summary copied. Paste into cell A1 in Google Sheets.'
-                  : 'Summary copied as CSV.',
+                  ? 'Payroll rows copied. Paste into cell A1 in Google Sheets.'
+                  : 'Payroll rows copied as CSV.',
             ),
           ),
         );
@@ -995,10 +985,37 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not export summary: $error')),
+        SnackBar(content: Text('Could not export payroll rows: $error')),
       );
     }
   }
+
+  Widget _buildExportButton() => PopupMenuButton<String>(
+    enabled: !_loading && _error == null,
+    onSelected: _exportSummary,
+    tooltip: 'Export one payroll row per canvasser with hours',
+    itemBuilder: (_) => [
+      if (canDownloadCsv)
+        const PopupMenuItem(value: 'download', child: Text('Download CSV')),
+      const PopupMenuItem(
+        value: 'sheets',
+        child: Text('Copy for Google Sheets'),
+      ),
+      const PopupMenuItem(value: 'csv', child: Text('Copy CSV')),
+    ],
+    child: const Padding(
+      padding: EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.file_download_outlined),
+          SizedBox(width: 8),
+          Text('Export Payroll Rows'),
+          Icon(Icons.arrow_drop_down),
+        ],
+      ),
+    ),
+  );
 
   Widget _buildFilterPanel() {
     return Card(
@@ -1195,34 +1212,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                     ),
                   ),
               ],
-            ),
-            PopupMenuButton<String>(
-              enabled: !_loading && _error == null,
-              onSelected: _exportSummary,
-              tooltip: 'Export the displayed summary',
-              itemBuilder: (_) => [
-                if (canDownloadCsv)
-                  const PopupMenuItem(
-                    value: 'download',
-                    child: Text('Download CSV'),
-                  ),
-                const PopupMenuItem(
-                  value: 'sheets',
-                  child: Text('Copy for Google Sheets'),
-                ),
-                const PopupMenuItem(value: 'csv', child: Text('Copy CSV')),
-              ],
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.file_download_outlined),
-                    SizedBox(width: 8),
-                    Text('Export summary'),
-                  ],
-                ),
-              ),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -2878,6 +2867,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               ),
 
             const SizedBox(height: 12),
+
+            // Export selected period before the summary totals.
+            _buildExportButton(),
+            const SizedBox(height: 4),
 
             // KPI Totals Section
             if (_kpiTotals.isNotEmpty || _kpiTotalsAllData.isNotEmpty) ...[

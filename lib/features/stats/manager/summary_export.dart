@@ -56,3 +56,149 @@ String encodeSpreadsheet(List<List<String>> rows, {String separator = ','}) {
 
   return rows.map((row) => row.map(cell).join(separator)).join('\r\n');
 }
+
+/// Builds one payroll summary row per person with positive hours in the period.
+/// [dailyRows] must already have the selected date and ZIP filters applied.
+List<List<String>> canvasserPayrollRows({
+  required List<Map<String, dynamic>> dailyRows,
+  required List<Map<String, dynamic>> shiftRows,
+  required Set<String> knockDateKeys,
+  required double conversionRate,
+  required DateRangeStrings range,
+  required bool zipFiltered,
+}) {
+  num number(dynamic value) =>
+      value is num ? value : num.tryParse('$value') ?? 0;
+  String userDateKey(Map<String, dynamic> row) =>
+      '${row['user_id'] ?? ''}|${row['work_date_ny'] ?? ''}';
+  final people = <String, Map<String, dynamic>>{};
+  Map<String, dynamic> person(String email) => people.putIfAbsent(
+    email,
+    () => {
+      'email': email,
+      'knocks': 0,
+      'answers': 0,
+      'signups': 0,
+      'knock_hours': 0,
+      'shift_seconds': 0,
+      'shift_signups': 0,
+      'shift_dates': <String>{},
+    },
+  );
+  for (final row in dailyRows) {
+    final email = '${row['user_email'] ?? ''}'.trim();
+    if (email.isEmpty) continue;
+    final p = person(email);
+    p['knocks'] = number(p['knocks']) + number(row['total_knocks']);
+    p['answers'] = number(p['answers']) + number(row['answers']);
+    p['signups'] = number(p['signups']) + number(row['signed_ups']);
+    p['knock_hours'] = number(p['knock_hours']) + number(row['billable_hours']);
+  }
+  if (!zipFiltered) {
+    for (final row in shiftRows) {
+      final email = '${row['user_email'] ?? ''}'.trim();
+      if (email.isEmpty) continue;
+      final p = person(email);
+      p['shift_seconds'] =
+          number(p['shift_seconds']) + number(row['duration_seconds']);
+      p['shift_signups'] =
+          number(p['shift_signups']) + number(row['self_reported_signups']);
+      if (number(row['duration_seconds']) > 0 && row['is_bonus'] != true) {
+        (p['shift_dates'] as Set<String>).add(userDateKey(row));
+      }
+    }
+  }
+
+  final output = <List<String>>[
+    [
+      'Start date',
+      'End date',
+      'Canvasser',
+      'Knocks',
+      'Answers',
+      'Signups',
+      if (!zipFiltered) 'Shift signups',
+      'Signup Rate',
+      'Answer Rate',
+      'Knocks/Hour',
+      'Answers/Hour',
+      if (!zipFiltered) 'Shift Hours',
+      'Knock Hours',
+      'Total Hours',
+      'Overlap days',
+      'Conversion Rate',
+      'Converted Audits (estimate)',
+      'Total Cost (estimate)',
+      'Cost Per Audit (estimate)',
+      'Hours Note',
+    ],
+  ];
+  final emails = people.keys.toList()..sort();
+  for (final email in emails) {
+    final p = people[email]!;
+    final knockHours = number(p['knock_hours']);
+    final shiftHours = number(p['shift_seconds']) / 3600;
+    final totalHours = knockHours + shiftHours;
+    if (totalHours <= 0) continue;
+    final shiftDates = p['shift_dates'] as Set<String>;
+    final overlap = zipFiltered
+        ? 0
+        : shiftDates.where(knockDateKeys.contains).length;
+    final answers = number(p['answers']);
+    final signups = number(p['signups']);
+    final shiftSignups = number(p['shift_signups']);
+    final totals = <String, dynamic>{
+      'knocks': number(p['knocks']),
+      'answers': answers,
+      'signups': signups,
+      'shift_signups': shiftSignups,
+      'knock_hours': knockHours,
+      'shift_hours': shiftHours,
+      'total_hours': totalHours,
+      'overlap_count': overlap,
+      'answer_rate': number(p['knocks']) > 0
+          ? answers / number(p['knocks'])
+          : 0,
+      'knocks_per_hour': knockHours > 0 ? number(p['knocks']) / knockHours : 0,
+      'answers_per_hour': knockHours > 0 ? answers / knockHours : 0,
+    };
+    final summary = summaryExportRows(
+      totals: totals,
+      conversionRate: conversionRate,
+      zipFiltered: zipFiltered,
+      filters: const {},
+    );
+    final values = {for (final row in summary.skip(1)) row[0]: row[1]};
+    output.add([
+      range.start,
+      range.end,
+      email,
+      values['Knocks']!,
+      values['Answers']!,
+      values['Signups']!,
+      if (!zipFiltered) values['Shift signups']!,
+      values['Signup Rate']!,
+      values['Answer Rate']!,
+      values['Knocks/Hour']!,
+      values['Answers/Hour']!,
+      if (!zipFiltered) values['Shift Hours']!,
+      values['Knock Hours']!,
+      values['Total Hours']!,
+      values['Overlap days']!,
+      values['Conversion Rate']!,
+      values['Converted Audits']!,
+      values['Total Cost']!,
+      values['Cost Per Audit']!,
+      overlap > 0
+          ? 'Shift and knock time overlap; total hours may double count time.'
+          : '',
+    ]);
+  }
+  return output;
+}
+
+class DateRangeStrings {
+  const DateRangeStrings({required this.start, required this.end});
+  final String start;
+  final String end;
+}
