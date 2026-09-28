@@ -41,6 +41,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   DateTimeRange? _range;
   final List<String> _selectedCanvassers = [];
   final List<String> _selectedZipCodes = [];
+  TimeOfDay? _startTime;
+  TimeOfDay? _endTime;
+  Set<String> _selectedOutcomes = {'knocked', 'answered', 'signed_up'};
 
   bool _loading = false;
   String? _error;
@@ -220,8 +223,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       }
 
       // Apply ZIP code filter (need to query house_events for this)
-      if (_selectedZipCodes.isNotEmpty) {
-        filteredRows = await _applyZipFilter(filteredRows);
+      if (_hasActivityFilters()) {
+        filteredRows = await _applyAdvancedFilters(filteredRows);
       }
 
       // Calculate analytics from summary data
@@ -250,7 +253,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _applyZipFilter(
+  Future<List<Map<String, dynamic>>> _applyAdvancedFilters(
     List<Map<String, dynamic>> summaryRows,
   ) async {
     if (summaryRows.isEmpty) return summaryRows;
@@ -275,15 +278,35 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             // PostgreSQL resolves NY midnight with the correct DST offset.
             .gte('created_at', '$workDate 00:00:00 America/New_York')
             .lt('created_at', '$nextDay 00:00:00 America/New_York');
+        if (_selectedOutcomes.length < 3) {
+          query = query.inFilter('event_type', _selectedOutcomes.toList());
+        }
         return await query.order('id').range(from, to).count(CountOption.exact);
       });
 
       if (events.isEmpty) continue;
 
       final hasMatchingEvent = events.any((event) {
-        final house = event['houses'];
-        return house is Map &&
-            _selectedZipCodes.contains('${house['zip'] ?? ''}');
+        if (_selectedZipCodes.isNotEmpty) {
+          final house = event['houses'];
+          if (house is! Map ||
+              !_selectedZipCodes.contains('${house['zip'] ?? ''}')) {
+            return false;
+          }
+        }
+        if (_startTime == null && _endTime == null) return true;
+        final created = DateTime.tryParse('${event['created_at']}')?.toLocal();
+        if (created == null) return false;
+        final minutes = created.hour * 60 + created.minute;
+        final start = _startTime == null
+            ? 0
+            : _startTime!.hour * 60 + _startTime!.minute;
+        final end = _endTime == null
+            ? 24 * 60
+            : _endTime!.hour * 60 + _endTime!.minute;
+        return start <= end
+            ? minutes >= start && minutes <= end
+            : minutes >= start || minutes <= end;
       });
       if (!hasMatchingEvent) continue;
 
@@ -350,15 +373,39 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     );
   }
 
-  bool _hasActiveFilters() {
-    return _selectedCanvassers.isNotEmpty || _selectedZipCodes.isNotEmpty;
-  }
+  bool _hasActivityFilters() =>
+      _selectedZipCodes.isNotEmpty ||
+      _startTime != null ||
+      _endTime != null ||
+      _selectedOutcomes.length < 3;
+
+  bool _hasActiveFilters() =>
+      _selectedCanvassers.isNotEmpty || _hasActivityFilters();
 
   void _clearFilters() {
     setState(() {
       _selectedCanvassers.clear();
       _selectedZipCodes.clear();
       _zipTextController.clear();
+      _startTime = null;
+      _endTime = null;
+      _selectedOutcomes = {'knocked', 'answered', 'signed_up'};
+    });
+    _fetch();
+  }
+
+  Future<void> _pickTime(bool isStart) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: (isStart ? _startTime : _endTime) ?? TimeOfDay.now(),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isStart) {
+        _startTime = picked;
+      } else {
+        _endTime = picked;
+      }
     });
     _fetch();
   }
@@ -667,6 +714,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         if (userIds.isNotEmpty) {
           eventQuery = eventQuery.inFilter('user_id', userIds);
         }
+      }
+
+      if (_selectedOutcomes.length < 3) {
+        eventQuery = eventQuery.inFilter(
+          'event_type',
+          _selectedOutcomes.toList(),
+        );
       }
 
       final events = (await eventQuery as List)
@@ -1008,10 +1062,10 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.file_download_outlined),
+          Icon(Icons.file_download_outlined, color: Colors.purple),
           SizedBox(width: 8),
-          Text('Export Payroll Rows'),
-          Icon(Icons.arrow_drop_down),
+          Text('Export Payroll Rows', style: TextStyle(color: Colors.purple)),
+          Icon(Icons.arrow_drop_down, color: Colors.purple),
         ],
       ),
     ),
@@ -1087,6 +1141,83 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                     ),
                     onSubmitted: _addManualZip,
                   ),
+                ),
+              ],
+            ),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              title: Text(
+                _startTime == null &&
+                        _endTime == null &&
+                        _selectedOutcomes.length == 3
+                    ? 'Time & outcomes'
+                    : 'Time & outcomes · active',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              children: [
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Time of day'),
+                        const SizedBox(width: 8),
+                        OutlinedButton(
+                          onPressed: () => _pickTime(true),
+                          child: Text(_startTime?.format(context) ?? 'Start'),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4),
+                          child: Text('to'),
+                        ),
+                        OutlinedButton(
+                          onPressed: () => _pickTime(false),
+                          child: Text(_endTime?.format(context) ?? 'End'),
+                        ),
+                        if (_startTime != null || _endTime != null)
+                          IconButton(
+                            tooltip: 'Clear time filter',
+                            onPressed: () {
+                              setState(() {
+                                _startTime = null;
+                                _endTime = null;
+                              });
+                              _fetch();
+                            },
+                            icon: const Icon(Icons.close, size: 18),
+                          ),
+                      ],
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      children: [
+                        for (final outcome in const {
+                          'knocked': 'Knocked',
+                          'answered': 'Answered',
+                          'signed_up': 'Signed Up',
+                        }.entries)
+                          FilterChip(
+                            label: Text(outcome.value),
+                            visualDensity: VisualDensity.compact,
+                            selected: _selectedOutcomes.contains(outcome.key),
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  _selectedOutcomes.add(outcome.key);
+                                } else if (_selectedOutcomes.length > 1) {
+                                  _selectedOutcomes.remove(outcome.key);
+                                }
+                              });
+                              _fetch();
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),

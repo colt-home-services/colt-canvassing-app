@@ -111,6 +111,7 @@ List<List<String>> canvasserPayrollRows({
 
   final output = <List<String>>[
     [
+      'Total Cost',
       'Start date',
       'End date',
       'Canvasser',
@@ -127,10 +128,8 @@ List<List<String>> canvasserPayrollRows({
       'Total Hours',
       'Overlap days',
       'Conversion Rate',
-      'Converted Audits (estimate)',
-      'Total Cost (estimate)',
-      'Cost Per Audit (estimate)',
-      'Hours Note',
+      'Converted Audits',
+      'Cost Per Audit',
     ],
   ];
   final emails = people.keys.toList()..sort();
@@ -170,6 +169,7 @@ List<List<String>> canvasserPayrollRows({
     );
     final values = {for (final row in summary.skip(1)) row[0]: row[1]};
     output.add([
+      values['Total Cost']!,
       range.start,
       range.end,
       email,
@@ -187,11 +187,7 @@ List<List<String>> canvasserPayrollRows({
       values['Overlap days']!,
       values['Conversion Rate']!,
       values['Converted Audits']!,
-      values['Total Cost']!,
       values['Cost Per Audit']!,
-      overlap > 0
-          ? 'Shift and knock time overlap; total hours may double count time.'
-          : '',
     ]);
   }
   return output;
