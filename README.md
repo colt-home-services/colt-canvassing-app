@@ -236,7 +236,10 @@ Shows personal stats over a selected date range:
 
 - Answer Rate = `answers / knocks`
 - Conversion Rate = `sign-ups / answers`
+- A valid bucket is a 15-minute local-time period counted by `v_payroll_daily` based on knock activity. Each valid bucket contributes 0.25 hours to Paid Time / Knock Hours.
 - Paid Time = `valid 15-minute buckets × 0.25`
+- Knock Hours measure time spent canvassing, based on valid knock buckets.
+- Shift Hours measure separate non-knocking work time recorded on shifts. They are not reduced by Knock Hours; the two metrics represent different kinds of work.
 
 Percentages are computed from summed totals (not averaged).
 
@@ -254,9 +257,9 @@ Shows team-wide daily summaries:
 
 KPI summary card (respects canvasser + date filters):
 
-- Shift Hours – total clocked time
+- Shift Hours – clocked time for non-knocking work
 - Knock Hours – `billable_hours` from `v_payroll_daily`
-- Total Hours – Shift Hours + Knock Hours, with a warning chip on days that have both (possible double-count)
+- Total Hours – Shift Hours + Knock Hours, the combined time across both work categories
 
 Clicking a row opens a bucket-level drilldown for auditing payroll logic. The Shifts button opens the manager shifts view, where managers can override or disallow individual shifts.
 
@@ -387,4 +390,3 @@ If forgot password is disabled in the UI, an admin can:
 - Exportable reports
 - Mobile (iOS/Android) builds
 - Offline-first support
-

@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/data/fetch_all_rows.dart';
+
 class DailyMetricOverrideService {
   DailyMetricOverrideService(this._client);
 
@@ -10,18 +12,21 @@ class DailyMetricOverrideService {
     required DateTime end,
     String? userId,
   }) async {
-    var query = _client
-        .from('manager_daily_metric_overrides')
-        .select('user_id, work_date_ny, total_knocks, signed_ups')
-        .gte('work_date_ny', _fmtYmd(start))
-        .lte('work_date_ny', _fmtYmd(end));
-    if (userId != null && userId.isNotEmpty) {
-      query = query.eq('user_id', userId);
-    }
-
-    final rows = ((await query) as List)
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    final rows = await fetchAllRows((from, to) async {
+      var query = _client
+          .from('manager_daily_metric_overrides')
+          .select('user_id, work_date_ny, total_knocks, signed_ups')
+          .gte('work_date_ny', _fmtYmd(start))
+          .lte('work_date_ny', _fmtYmd(end));
+      if (userId != null && userId.isNotEmpty) {
+        query = query.eq('user_id', userId);
+      }
+      return await query
+          .order('work_date_ny')
+          .order('user_id')
+          .range(from, to)
+          .count(CountOption.exact);
+    });
 
     return {
       for (final row in rows)

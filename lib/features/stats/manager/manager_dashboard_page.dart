@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../../core/export/download.dart';
+import '../../../core/data/fetch_all_rows.dart';
+import 'summary_export.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../canvassing/towns_page.dart';
@@ -47,7 +52,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   List<String> _availableCanvassers = [];
   List<String> _availableFilterUsers = [];
   final Map<String, String> _canvasserIdByEmail = {};
-  bool _showFilters = false;
+  final Map<String, String> _canvasserNameByEmail = {};
+  bool _showFilters = true;
   late TextEditingController _zipTextController;
 
   // Analytics state
@@ -108,12 +114,36 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       final canvassersData = await _supabase.rpc('manager_list_canvassers');
 
       final canvasserIdsByEmail = <String, String>{};
+      final canvasserNamesByEmail = <String, String>{};
       for (final item in canvassersData as List) {
         final row = Map<String, dynamic>.from(item as Map);
         final email = (row['user_email'] ?? '').toString();
         final userId = (row['user_id'] ?? '').toString();
         if (email.isNotEmpty && userId.isNotEmpty) {
           canvasserIdsByEmail[email] = userId;
+          final first = (row['first_name'] ?? '').toString().trim();
+          final last = (row['last_name'] ?? '').toString().trim();
+          canvasserNamesByEmail[email] = [
+            first,
+            last,
+          ].where((name) => name.isNotEmpty).join(' ');
+        }
+      }
+      final currentUser = _supabase.auth.currentUser;
+      final ownEmail = (currentUser?.email ?? '').trim();
+      if (currentUser != null && ownEmail.isNotEmpty) {
+        final ownProfile = await _supabase
+            .from('profiles')
+            .select('first_name, last_name')
+            .eq('user_id', currentUser.id)
+            .maybeSingle();
+        if (ownProfile != null) {
+          final first = (ownProfile['first_name'] ?? '').toString().trim();
+          final last = (ownProfile['last_name'] ?? '').toString().trim();
+          canvasserNamesByEmail[ownEmail] = [
+            first,
+            last,
+          ].where((name) => name.isNotEmpty).join(' ');
         }
       }
       final canvassers = canvasserIdsByEmail.keys.toList()..sort();
@@ -125,6 +155,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         _canvasserIdByEmail
           ..clear()
           ..addAll(canvasserIdsByEmail);
+        _canvasserNameByEmail
+          ..clear()
+          ..addAll(canvasserNamesByEmail);
       });
       await _fetchWeeklyGoals();
     } catch (e) {
@@ -135,8 +168,8 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   String _fmtYmd(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  Future<void> _fetch() async {
-    if (_range == null) return;
+  Future<bool> _fetch() async {
+    if (_range == null || _loading) return false;
 
     setState(() {
       _loading = true;
@@ -147,16 +180,17 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       final startStr = _fmtYmd(_range!.start);
       final endStr = _fmtYmd(_range!.end);
 
-      var query = _supabase
-          .from('v_manager_daily_summary')
-          .select()
-          .gte('work_date_ny', startStr)
-          .lte('work_date_ny', endStr);
-
-      final rawRows =
-          (await query.order('work_date_ny', ascending: false) as List)
-              .map((e) => Map<String, dynamic>.from(e as Map))
-              .toList();
+      final rawRows = await fetchAllRows((from, to) async {
+        return await _supabase
+            .from('v_manager_daily_summary')
+            .select()
+            .gte('work_date_ny', startStr)
+            .lte('work_date_ny', endStr)
+            .order('work_date_ny', ascending: false)
+            .order('user_id')
+            .range(from, to)
+            .count(CountOption.exact);
+      });
 
       _dailyMetricOverrides = await _overrideService.fetchOverrides(
         start: _range!.start,
@@ -170,41 +204,33 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       // Store unfiltered data
       _allRows = allRows;
 
-      // Fetch shift rows for the same date range (used for Total Shift Hours KPI)
-      final shiftStartUtc = DateTime(
-        _range!.start.year,
-        _range!.start.month,
-        _range!.start.day,
-      ).toUtc().toIso8601String();
-      final shiftEndUtc = DateTime(
-        _range!.end.year,
-        _range!.end.month,
-        _range!.end.day,
-      ).add(const Duration(days: 1)).toUtc().toIso8601String();
-
-      _shiftRows =
-          ((await _supabase
-                      .from('v_shifts_detail')
-                      .select(
-                        'user_id, user_email, work_date_ny, duration_seconds, clock_in_at, is_bonus, self_reported_signups',
-                      )
-                      .gte('clock_in_at', shiftStartUtc)
-                      .lt('clock_in_at', shiftEndUtc)
-                      .filter('disallowed_at', 'is', null))
-                  as List)
-              .map((e) => Map<String, dynamic>.from(e as Map))
-              .toList();
+      // Use the database's New York work date, independent of device timezone.
+      _shiftRows = await fetchAllRows((from, to) async {
+        return await _supabase
+            .from('v_shifts_detail')
+            .select(
+              'id, user_id, user_email, work_date_ny, duration_seconds, clock_in_at, clock_out_at, is_bonus, self_reported_signups',
+            )
+            .gte('work_date_ny', startStr)
+            .lte('work_date_ny', endStr)
+            .filter('disallowed_at', 'is', null)
+            .order('id')
+            .range(from, to)
+            .count(CountOption.exact);
+      });
       _refreshAvailableFilterUsers();
 
-      final knockDateRows =
-          ((await _supabase
-                      .from('v_user_knock_dates')
-                      .select('user_id, work_date_ny')
-                      .gte('work_date_ny', startStr)
-                      .lte('work_date_ny', endStr))
-                  as List)
-              .map((e) => Map<String, dynamic>.from(e as Map))
-              .toList();
+      final knockDateRows = await fetchAllRows((from, to) async {
+        return await _supabase
+            .from('v_user_knock_dates')
+            .select('user_id, work_date_ny')
+            .gte('work_date_ny', startStr)
+            .lte('work_date_ny', endStr)
+            .order('work_date_ny')
+            .order('user_id')
+            .range(from, to)
+            .count(CountOption.exact);
+      });
       _knockDateKeys = {
         for (final row in knockDateRows)
           if (_userDateKey(row) != null) _userDateKey(row)!,
@@ -225,10 +251,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       }
 
       // Apply ZIP code filter (need to query house_events for this)
-      if (_selectedZipCodes.isNotEmpty ||
-          _startTime != null ||
-          _endTime != null ||
-          _selectedOutcomes.length < 3) {
+      if (_hasActivityFilters()) {
         filteredRows = await _applyAdvancedFilters(filteredRows);
       }
 
@@ -242,17 +265,19 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       // Fetch and analyze detailed event data (async)
       _analyzeTimeAndZIPPerformance(allRows);
 
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _rows = filteredRows;
         _loading = false;
       });
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _error = e.toString();
         _loading = false;
       });
+      return false;
     }
   }
 
@@ -270,66 +295,48 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
       if (userId == null || workDate == null) continue;
 
-      // Query house_events for this user and date
-      var eventQuery = _supabase
-          .from('house_events')
-          .select('*, houses!inner(zip)')
-          .eq('user_id', userId)
-          .gte('created_at', '$workDate 00:00:00')
-          .lte('created_at', '$workDate 23:59:59');
-
-      // Filter by outcomes
-      if (_selectedOutcomes.isNotEmpty && _selectedOutcomes.length < 3) {
-        eventQuery = eventQuery.inFilter(
-          'event_type',
-          _selectedOutcomes.toList(),
-        );
-      }
-
-      final events = (await eventQuery as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+      final nextDay = _fmtYmd(
+        DateTime.parse(workDate.toString()).add(const Duration(days: 1)),
+      );
+      final events = await fetchAllRows((from, to) async {
+        var query = _supabase
+            .from('house_events')
+            .select('*, houses!inner(zip)')
+            .eq('user_id', userId)
+            // PostgreSQL resolves NY midnight with the correct DST offset.
+            .gte('created_at', '$workDate 00:00:00 America/New_York')
+            .lt('created_at', '$nextDay 00:00:00 America/New_York');
+        if (_selectedOutcomes.isNotEmpty && _selectedOutcomes.length < 3) {
+          query = query.inFilter('event_type', _selectedOutcomes.toList());
+        }
+        return await query.order('id').range(from, to).count(CountOption.exact);
+      });
 
       if (events.isEmpty) continue;
 
-      // Apply ZIP code filter
-      if (_selectedZipCodes.isNotEmpty) {
-        final hasMatchingZip = events.any((e) {
-          final houseData = e['houses'];
-          if (houseData is Map) {
-            final zip = (houseData['zip'] ?? '').toString();
-            return _selectedZipCodes.contains(zip);
-          }
-          return false;
-        });
-
-        if (!hasMatchingZip) continue;
-      }
-
-      // Apply time of day filter
-      if (_startTime != null || _endTime != null) {
-        final hasMatchingTime = events.any((e) {
-          try {
-            final createdAt = DateTime.parse(
-              e['created_at'].toString(),
-            ).toLocal();
-            final eventMinutes = createdAt.hour * 60 + createdAt.minute;
-
-            final startMinutes = _startTime != null
-                ? _startTime!.hour * 60 + _startTime!.minute
-                : 0;
-            final endMinutes = _endTime != null
-                ? _endTime!.hour * 60 + _endTime!.minute
-                : 24 * 60;
-
-            return eventMinutes >= startMinutes && eventMinutes <= endMinutes;
-          } catch (_) {
+      final hasMatchingEvent = events.any((event) {
+        if (_selectedZipCodes.isNotEmpty) {
+          final house = event['houses'];
+          if (house is! Map ||
+              !_selectedZipCodes.contains('${house['zip'] ?? ''}')) {
             return false;
           }
-        });
-
-        if (!hasMatchingTime) continue;
-      }
+        }
+        if (_startTime == null && _endTime == null) return true;
+        final created = DateTime.tryParse('${event['created_at']}')?.toLocal();
+        if (created == null) return false;
+        final minutes = created.hour * 60 + created.minute;
+        final start = _startTime == null
+            ? 0
+            : _startTime!.hour * 60 + _startTime!.minute;
+        final end = _endTime == null
+            ? 24 * 60
+            : _endTime!.hour * 60 + _endTime!.minute;
+        return start <= end
+            ? minutes >= start && minutes <= end
+            : minutes >= start || minutes <= end;
+      });
+      if (!hasMatchingEvent) continue;
 
       filteredRows.add(row);
     }
@@ -394,18 +401,20 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     );
   }
 
-  bool _hasActiveFilters() {
-    return _selectedCanvassers.isNotEmpty ||
-        _selectedZipCodes.isNotEmpty ||
-        _startTime != null ||
-        _endTime != null ||
-        _selectedOutcomes.length < 3;
-  }
+  bool _hasActivityFilters() =>
+      _selectedZipCodes.isNotEmpty ||
+      _startTime != null ||
+      _endTime != null ||
+      _selectedOutcomes.isNotEmpty && _selectedOutcomes.length < 3;
+
+  bool _hasActiveFilters() =>
+      _selectedCanvassers.isNotEmpty || _hasActivityFilters();
 
   void _clearFilters() {
     setState(() {
       _selectedCanvassers.clear();
       _selectedZipCodes.clear();
+      _zipTextController.clear();
       _startTime = null;
       _endTime = null;
       _selectedOutcomes = {'knocked', 'answered', 'signed_up'};
@@ -418,16 +427,15 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       context: context,
       initialTime: (isStart ? _startTime : _endTime) ?? TimeOfDay.now(),
     );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _startTime = picked;
-        } else {
-          _endTime = picked;
-        }
-      });
-      _fetch();
-    }
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isStart) {
+        _startTime = picked;
+      } else {
+        _endTime = picked;
+      }
+    });
+    _fetch();
   }
 
   bool _validateZip(String zip) {
@@ -481,12 +489,24 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   }
 
   void _refreshAvailableFilterUsers() {
+    final ownEmail = (_supabase.auth.currentUser?.email ?? '').trim();
     _availableFilterUsers = {
       ..._availableCanvassers,
       ..._shiftRows
           .map((row) => (row['user_email'] ?? '').toString().trim())
           .where((email) => email.isNotEmpty),
+      if (ownEmail.isNotEmpty) ownEmail,
     }.toList()..sort();
+  }
+
+  String _canvasserLabel(String email) {
+    final name = (_canvasserNameByEmail[email] ?? '').trim();
+    return name.isEmpty ? email : '$name ($email)';
+  }
+
+  String _canvasserDisplayName(String email) {
+    final name = (_canvasserNameByEmail[email] ?? '').trim();
+    return name.isEmpty ? email : name;
   }
 
   Future<void> _fetchWeeklyGoals({
@@ -736,7 +756,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         }
       }
 
-      // Apply outcome filter
       if (_selectedOutcomes.isNotEmpty && _selectedOutcomes.length < 3) {
         eventQuery = eventQuery.inFilter(
           'event_type',
@@ -920,143 +939,254 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     }
   }
 
-  Widget _buildCanvasserDropdown() {
-    return PopupMenuButton<String>(
-      tooltip: 'Select team members',
-      offset: const Offset(0, 40),
-      itemBuilder: (context) {
-        return _availableFilterUsers.map((email) {
-          final isSelected = _selectedCanvassers.contains(email);
-          return PopupMenuItem<String>(
-            value: email,
-            onTap: () {
-              setState(() {
-                if (isSelected) {
-                  _selectedCanvassers.remove(email);
-                } else {
-                  _selectedCanvassers.add(email);
-                }
-              });
-              _fetch();
-            },
-            child: Row(
+  Future<void> _selectTeamMembers() async {
+    final selected = _selectedCanvassers.toSet();
+    var search = '';
+    final result = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Filter team members'),
+          content: SizedBox(
+            width: 420,
+            height: 360,
+            child: Column(
               children: [
-                if (isSelected) const Icon(Icons.check, size: 16),
-                if (isSelected) const SizedBox(width: 8),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Search by name or email',
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: (value) =>
+                      update(() => search = value.toLowerCase()),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () => update(selected.clear),
+                    child: const Text('Clear selection (all team members)'),
+                  ),
+                ),
                 Expanded(
-                  child: Text(email, style: const TextStyle(fontSize: 14)),
+                  child: ListView(
+                    children: [
+                      for (final email in _availableFilterUsers.where(
+                        (email) => _canvasserLabel(
+                          email,
+                        ).toLowerCase().contains(search),
+                      ))
+                        CheckboxListTile(
+                          title: Text(_canvasserLabel(email)),
+                          value: selected.contains(email),
+                          onChanged: (checked) => update(() {
+                            if (checked == true) {
+                              selected.add(email);
+                            } else {
+                              selected.remove(email);
+                            }
+                          }),
+                        ),
+                      if (!_availableFilterUsers.any(
+                        (email) => _canvasserLabel(
+                          email,
+                        ).toLowerCase().contains(search),
+                      ))
+                        const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('No team members found.'),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
-          );
-        }).toList();
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade400),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Text(
-              'Select',
-              style: TextStyle(fontSize: 14, color: Colors.black87),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
             ),
-            SizedBox(width: 4),
-            Icon(Icons.arrow_drop_down, size: 20, color: Colors.black87),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: const Text('Apply'),
+            ),
           ],
         ),
       ),
     );
+    if (result == null || !mounted) return;
+    setState(() {
+      _selectedCanvassers
+        ..clear()
+        ..addAll(result);
+    });
+    _fetch();
   }
 
-  Widget _buildFilterPanel() {
-    final hasSelections =
-        _selectedCanvassers.isNotEmpty || _selectedZipCodes.isNotEmpty;
+  Widget _buildCanvasserDropdown() => OutlinedButton.icon(
+    onPressed: _selectTeamMembers,
+    icon: const Icon(Icons.people_outline),
+    label: Text(
+      _selectedCanvassers.isEmpty
+          ? 'All team members'
+          : '${_selectedCanvassers.length} selected',
+    ),
+  );
 
+  Future<void> _exportSummary(String format) async {
+    if (_loading || !await _fetch() || !mounted || _range == null) return;
+    final rows = canvasserPayrollRows(
+      dailyRows: _rows,
+      shiftRows: _shiftRowsForKpi(isAllData: false).toList(),
+      knockDateKeys: _knockDateKeys,
+      conversionRate: _conversionRate,
+      zipFiltered: _selectedZipCodes.isNotEmpty,
+      namesByEmail: _canvasserNameByEmail,
+      range: DateRangeStrings(
+        start: _fmtYmd(_range!.start),
+        end: _fmtYmd(_range!.end),
+      ),
+    );
+    if (rows.length == 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No canvassers with hours in this date range.'),
+        ),
+      );
+      return;
+    }
+    try {
+      if (format == 'download') {
+        downloadCsv(
+          'canvasser-payroll_${_fmtYmd(_range!.start)}_${_fmtYmd(_range!.end)}.csv',
+          encodeSpreadsheet(rows),
+        );
+      } else {
+        await Clipboard.setData(
+          ClipboardData(
+            text: encodeSpreadsheet(
+              rows,
+              separator: format == 'sheets' ? '\t' : ',',
+            ),
+          ),
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              format == 'sheets'
+                  ? 'Payroll rows copied. Paste into cell A1 in Google Sheets.'
+                  : 'Payroll rows copied as CSV.',
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not export payroll rows: $error')),
+      );
+    }
+  }
+
+  Widget _buildExportButton() => PopupMenuButton<String>(
+    enabled: !_loading && _error == null,
+    onSelected: _exportSummary,
+    tooltip: 'Export one payroll row per canvasser with hours',
+    itemBuilder: (_) => [
+      if (canDownloadCsv)
+        const PopupMenuItem(value: 'download', child: Text('Download CSV')),
+      const PopupMenuItem(
+        value: 'sheets',
+        child: Text('Copy for Google Sheets'),
+      ),
+      const PopupMenuItem(value: 'csv', child: Text('Copy CSV')),
+    ],
+    child: const Padding(
+      padding: EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.file_download_outlined, color: Colors.purple),
+          SizedBox(width: 8),
+          Text('Export Payroll Rows', style: TextStyle(color: Colors.purple)),
+          Icon(Icons.arrow_drop_down, color: Colors.purple),
+        ],
+      ),
+    ),
+  );
+
+  Widget _buildFilterPanel() {
     return Card(
       elevation: 0,
       color: Colors.grey.shade50,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Filter controls row
             Wrap(
-              spacing: 24,
-              runSpacing: 12,
+              spacing: 12,
+              runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                // Canvassers filter
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Team Members',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
+                PopupMenuButton<int>(
+                  tooltip: 'Quick date range',
+                  onSelected: (days) {
+                    final now = DateTime.now();
+                    final today = DateTime(now.year, now.month, now.day);
+                    setState(
+                      () => _range = DateTimeRange(
+                        start: today.subtract(Duration(days: days - 1)),
+                        end: today,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    _buildCanvasserDropdown(),
+                    );
+                    _fetch();
+                  },
+                  itemBuilder: (_) => [
+                    for (final days in [1, 7, 14, 30])
+                      PopupMenuItem(
+                        value: days,
+                        child: Text(days == 1 ? 'Today' : 'Last $days days'),
+                      ),
                   ],
-                ),
-
-                // ZIP codes filter
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'ZIP Codes',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                    child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        SizedBox(
-                          width: 130,
-                          child: TextField(
-                            controller: _zipTextController,
-                            style: const TextStyle(fontSize: 14),
-                            decoration: const InputDecoration(
-                              hintText: 'Enter ZIP',
-                              hintStyle: TextStyle(fontSize: 14),
-                              isDense: true,
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 8,
-                              ),
-                            ),
-                            onSubmitted: _addManualZip,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        ElevatedButton(
-                          onPressed: () =>
-                              _addManualZip(_zipTextController.text),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                          ),
-                          child: const Text('Add'),
-                        ),
+                        Icon(Icons.date_range, size: 18),
+                        SizedBox(width: 6),
+                        Text('Quick dates'),
+                        Icon(Icons.arrow_drop_down),
                       ],
                     ),
-                  ],
+                  ),
                 ),
-
+                _buildCanvasserDropdown(),
+                SizedBox(
+                  width: 170,
+                  child: TextField(
+                    controller: _zipTextController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(5),
+                    ],
+                    decoration: InputDecoration(
+                      hintText: 'ZIP code',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        tooltip: 'Add ZIP filter',
+                        icon: const Icon(Icons.add, size: 20),
+                        onPressed: () => _addManualZip(_zipTextController.text),
+                      ),
+                    ),
+                    onSubmitted: _addManualZip,
+                  ),
+                ),
                 // Time of day filter
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1204,43 +1334,30 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               ],
             ),
 
-            // Active filters section (only show if there are selections)
-            if (hasSelections) ...[
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
+            if (_hasActiveFilters()) ...[
+              const SizedBox(height: 8),
               Wrap(
-                spacing: 8,
-                runSpacing: 6,
+                spacing: 6,
+                runSpacing: 4,
                 children: [
-                  ..._selectedCanvassers.map((email) {
-                    return FilterChip(
-                      avatar: const Icon(Icons.person, size: 14),
-                      label: Text(email, style: const TextStyle(fontSize: 12)),
-                      selected: true,
-                      visualDensity: VisualDensity.compact,
-                      onSelected: (selected) {
-                        setState(() {
-                          _selectedCanvassers.remove(email);
-                        });
+                  for (final email in _selectedCanvassers)
+                    InputChip(
+                      avatar: const Icon(Icons.person_outline, size: 16),
+                      label: Text(email),
+                      onDeleted: () {
+                        setState(() => _selectedCanvassers.remove(email));
                         _fetch();
                       },
-                    );
-                  }),
-                  ..._selectedZipCodes.map((zip) {
-                    return FilterChip(
-                      avatar: const Icon(Icons.location_on, size: 14),
-                      label: Text(zip, style: const TextStyle(fontSize: 12)),
-                      selected: true,
-                      visualDensity: VisualDensity.compact,
-                      onSelected: (selected) {
-                        setState(() {
-                          _selectedZipCodes.remove(zip);
-                        });
+                    ),
+                  for (final zip in _selectedZipCodes)
+                    InputChip(
+                      avatar: const Icon(Icons.location_on_outlined, size: 16),
+                      label: Text(zip),
+                      onDeleted: () {
+                        setState(() => _selectedZipCodes.remove(zip));
                         _fetch();
                       },
-                    );
-                  }),
+                    ),
                 ],
               ),
             ],
@@ -1291,53 +1408,62 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text(
-                  'Summary',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Summary',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (hasActiveFilters)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade700,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'FILTERED',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade400,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'ALL DATA',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                if (hasActiveFilters)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade700,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      'FILTERED',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  )
-                else
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade400,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      'ALL DATA',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                _buildExportButton(),
               ],
             ),
             const SizedBox(height: 12),
@@ -2359,9 +2485,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         userId: row['user_id'].toString(),
         userEmail: row['user_email'].toString(),
         workDateNy: row['work_date_ny'].toString(),
-        startTime: _startTime,
-        endTime: _endTime,
-        selectedOutcomes: _selectedOutcomes,
+        selectedOutcomes: const {'knocked', 'answered', 'signed_up'},
       ),
     );
   }
@@ -2805,7 +2929,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   Widget build(BuildContext context) {
     final rangeLabel = _range == null
         ? 'Pick date range'
-        : '${_range!.start.month}/${_range!.start.day} - ${_range!.end.month}/${_range!.end.day}';
+        : '${_fmtYmd(_range!.start)} – ${_fmtYmd(_range!.end)}';
 
     final user = _supabase.auth.currentUser;
     final email = user?.email ?? '';
@@ -2816,7 +2940,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
 
     final dashboardActions = <Widget>[
       ElevatedButton.icon(
-        onPressed: _pickRange,
+        onPressed: _loading ? null : _pickRange,
         icon: const Icon(Icons.date_range),
         label: Text(rangeLabel),
       ),
@@ -2865,7 +2989,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       if (_hasActiveFilters()) ...[
         const SizedBox(width: 12),
         TextButton.icon(
-          onPressed: _clearFilters,
+          onPressed: _loading ? null : _clearFilters,
           icon: const Icon(Icons.clear, size: 18),
           label: const Text('Clear Filters'),
         ),
@@ -2980,7 +3104,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             ),
             if (_showFilters) ...[
               const SizedBox(height: 12),
-              _buildFilterPanel(),
+              AbsorbPointer(absorbing: _loading, child: _buildFilterPanel()),
             ],
             const SizedBox(height: 12),
 
@@ -3044,7 +3168,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                       onSelectChanged: (_) => _openDrilldown(r),
                       cells: [
                         DataCell(Text(_num(r['work_date_ny']))),
-                        DataCell(Text(_num(r['user_email']))),
+                        DataCell(
+                          Text(
+                            _canvasserDisplayName(
+                              (r['user_email'] ?? '').toString(),
+                            ),
+                          ),
+                        ),
                         DataCell(
                           IconButton(
                             icon: const Icon(Icons.map, size: 18),
