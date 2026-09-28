@@ -111,10 +111,10 @@ List<List<String>> canvasserPayrollRows({
 
   final output = <List<String>>[
     [
-      'Total Cost',
       'Start date',
       'End date',
       'Canvasser',
+      'Total Cost',
       'Knocks',
       'Answers',
       'Signups',
@@ -169,10 +169,10 @@ List<List<String>> canvasserPayrollRows({
     );
     final values = {for (final row in summary.skip(1)) row[0]: row[1]};
     output.add([
-      values['Total Cost']!,
       range.start,
       range.end,
       email,
+      values['Total Cost']!,
       values['Knocks']!,
       values['Answers']!,
       values['Signups']!,

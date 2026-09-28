@@ -278,7 +278,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             // PostgreSQL resolves NY midnight with the correct DST offset.
             .gte('created_at', '$workDate 00:00:00 America/New_York')
             .lt('created_at', '$nextDay 00:00:00 America/New_York');
-        if (_selectedOutcomes.length < 3) {
+        if (_selectedOutcomes.isNotEmpty && _selectedOutcomes.length < 3) {
           query = query.inFilter('event_type', _selectedOutcomes.toList());
         }
         return await query.order('id').range(from, to).count(CountOption.exact);
@@ -377,7 +377,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       _selectedZipCodes.isNotEmpty ||
       _startTime != null ||
       _endTime != null ||
-      _selectedOutcomes.length < 3;
+      _selectedOutcomes.isNotEmpty && _selectedOutcomes.length < 3;
 
   bool _hasActiveFilters() =>
       _selectedCanvassers.isNotEmpty || _hasActivityFilters();
@@ -716,7 +716,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         }
       }
 
-      if (_selectedOutcomes.length < 3) {
+      if (_selectedOutcomes.isNotEmpty && _selectedOutcomes.length < 3) {
         eventQuery = eventQuery.inFilter(
           'event_type',
           _selectedOutcomes.toList(),
@@ -1142,75 +1142,67 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                     onSubmitted: _addManualZip,
                   ),
                 ),
-              ],
-            ),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(bottom: 8),
-              title: Text(
-                _startTime == null &&
-                        _endTime == null &&
-                        _selectedOutcomes.length == 3
-                    ? 'Time & outcomes'
-                    : 'Time & outcomes · active',
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-              children: [
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                // Time of day filter
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Text(
+                      'Time of Day',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('Time of day'),
-                        const SizedBox(width: 8),
-                        OutlinedButton(
+                        OutlinedButton.icon(
                           onPressed: () => _pickTime(true),
-                          child: Text(_startTime?.format(context) ?? 'Start'),
+                          icon: const Icon(Icons.access_time, size: 16),
+                          label: Text(
+                            _startTime != null
+                                ? _startTime!.format(context)
+                                : 'Start',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                          ),
                         ),
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 4),
                           child: Text('to'),
                         ),
-                        OutlinedButton(
+                        OutlinedButton.icon(
                           onPressed: () => _pickTime(false),
-                          child: Text(_endTime?.format(context) ?? 'End'),
+                          icon: const Icon(Icons.access_time, size: 16),
+                          label: Text(
+                            _endTime != null
+                                ? _endTime!.format(context)
+                                : 'End',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                          ),
                         ),
                         if (_startTime != null || _endTime != null)
                           IconButton(
+                            icon: const Icon(Icons.clear, size: 16),
                             tooltip: 'Clear time filter',
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(),
                             onPressed: () {
                               setState(() {
                                 _startTime = null;
                                 _endTime = null;
-                              });
-                              _fetch();
-                            },
-                            icon: const Icon(Icons.close, size: 18),
-                          ),
-                      ],
-                    ),
-                    Wrap(
-                      spacing: 6,
-                      children: [
-                        for (final outcome in const {
-                          'knocked': 'Knocked',
-                          'answered': 'Answered',
-                          'signed_up': 'Signed Up',
-                        }.entries)
-                          FilterChip(
-                            label: Text(outcome.value),
-                            visualDensity: VisualDensity.compact,
-                            selected: _selectedOutcomes.contains(outcome.key),
-                            onSelected: (selected) {
-                              setState(() {
-                                if (selected) {
-                                  _selectedOutcomes.add(outcome.key);
-                                } else if (_selectedOutcomes.length > 1) {
-                                  _selectedOutcomes.remove(outcome.key);
-                                }
                               });
                               _fetch();
                             },
@@ -1219,8 +1211,84 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                     ),
                   ],
                 ),
+
+                // Knock outcomes filter
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Outcomes',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        FilterChip(
+                          label: const Text(
+                            'Knocked',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          selected: _selectedOutcomes.contains('knocked'),
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedOutcomes.add('knocked');
+                              } else {
+                                _selectedOutcomes.remove('knocked');
+                              }
+                            });
+                            _fetch();
+                          },
+                        ),
+                        FilterChip(
+                          label: const Text(
+                            'Answered',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          selected: _selectedOutcomes.contains('answered'),
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedOutcomes.add('answered');
+                              } else {
+                                _selectedOutcomes.remove('answered');
+                              }
+                            });
+                            _fetch();
+                          },
+                        ),
+                        FilterChip(
+                          label: const Text(
+                            'Signed Up',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          selected: _selectedOutcomes.contains('signed_up'),
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedOutcomes.add('signed_up');
+                              } else {
+                                _selectedOutcomes.remove('signed_up');
+                              }
+                            });
+                            _fetch();
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ],
             ),
+
             if (_hasActiveFilters()) ...[
               const SizedBox(height: 8),
               Wrap(
@@ -1295,53 +1363,62 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text(
-                  'Summary',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Summary',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (hasActiveFilters)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade700,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'FILTERED',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade400,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'ALL DATA',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                if (hasActiveFilters)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.shade700,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      'FILTERED',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  )
-                else
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade400,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text(
-                      'ALL DATA',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                _buildExportButton(),
               ],
             ),
             const SizedBox(height: 12),
@@ -2998,10 +3075,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               ),
 
             const SizedBox(height: 12),
-
-            // Export selected period before the summary totals.
-            _buildExportButton(),
-            const SizedBox(height: 4),
 
             // KPI Totals Section
             if (_kpiTotals.isNotEmpty || _kpiTotalsAllData.isNotEmpty) ...[
