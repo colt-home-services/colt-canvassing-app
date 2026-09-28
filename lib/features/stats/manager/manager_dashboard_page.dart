@@ -129,6 +129,23 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           ].where((name) => name.isNotEmpty).join(' ');
         }
       }
+      final currentUser = _supabase.auth.currentUser;
+      final ownEmail = (currentUser?.email ?? '').trim();
+      if (currentUser != null && ownEmail.isNotEmpty) {
+        final ownProfile = await _supabase
+            .from('profiles')
+            .select('first_name, last_name')
+            .eq('user_id', currentUser.id)
+            .maybeSingle();
+        if (ownProfile != null) {
+          final first = (ownProfile['first_name'] ?? '').toString().trim();
+          final last = (ownProfile['last_name'] ?? '').toString().trim();
+          canvasserNamesByEmail[ownEmail] = [
+            first,
+            last,
+          ].where((name) => name.isNotEmpty).join(' ');
+        }
+      }
       final canvassers = canvasserIdsByEmail.keys.toList()..sort();
 
       if (!mounted) return;
@@ -472,17 +489,24 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   }
 
   void _refreshAvailableFilterUsers() {
+    final ownEmail = (_supabase.auth.currentUser?.email ?? '').trim();
     _availableFilterUsers = {
       ..._availableCanvassers,
       ..._shiftRows
           .map((row) => (row['user_email'] ?? '').toString().trim())
           .where((email) => email.isNotEmpty),
+      if (ownEmail.isNotEmpty) ownEmail,
     }.toList()..sort();
   }
 
   String _canvasserLabel(String email) {
     final name = (_canvasserNameByEmail[email] ?? '').trim();
     return name.isEmpty ? email : '$name ($email)';
+  }
+
+  String _canvasserDisplayName(String email) {
+    final name = (_canvasserNameByEmail[email] ?? '').trim();
+    return name.isEmpty ? email : name;
   }
 
   Future<void> _fetchWeeklyGoals({
@@ -918,6 +942,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   Future<void> _selectTeamMembers() async {
     final selected = _selectedCanvassers.toSet();
     var search = '';
+    var filterField = 'name';
     final result = await showDialog<Set<String>>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -928,9 +953,22 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             height: 360,
             child: Column(
               children: [
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'name', label: Text('Name')),
+                    ButtonSegment(value: 'email', label: Text('Email')),
+                  ],
+                  selected: {filterField},
+                  onSelectionChanged: (value) => update(() {
+                    filterField = value.first;
+                    search = '';
+                  }),
+                ),
+                const SizedBox(height: 12),
                 TextField(
+                  key: ValueKey(filterField),
                   decoration: const InputDecoration(
-                    labelText: 'Search by name or email',
+                    labelText: 'Search',
                     prefixIcon: Icon(Icons.search),
                   ),
                   onChanged: (value) =>
@@ -947,9 +985,12 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   child: ListView(
                     children: [
                       for (final email in _availableFilterUsers.where(
-                        (email) => _canvasserLabel(
-                          email,
-                        ).toLowerCase().contains(search),
+                        (email) =>
+                            (filterField == 'name'
+                                    ? (_canvasserNameByEmail[email] ?? '')
+                                    : email)
+                                .toLowerCase()
+                                .contains(search),
                       ))
                         CheckboxListTile(
                           title: Text(_canvasserLabel(email)),
@@ -963,9 +1004,12 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                           }),
                         ),
                       if (!_availableFilterUsers.any(
-                        (email) => _canvasserLabel(
-                          email,
-                        ).toLowerCase().contains(search),
+                        (email) =>
+                            (filterField == 'name'
+                                    ? (_canvasserNameByEmail[email] ?? '')
+                                    : email)
+                                .toLowerCase()
+                                .contains(search),
                       ))
                         const Padding(
                           padding: EdgeInsets.all(16),
@@ -3144,7 +3188,13 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                       onSelectChanged: (_) => _openDrilldown(r),
                       cells: [
                         DataCell(Text(_num(r['work_date_ny']))),
-                        DataCell(Text(_num(r['user_email']))),
+                        DataCell(
+                          Text(
+                            _canvasserDisplayName(
+                              (r['user_email'] ?? '').toString(),
+                            ),
+                          ),
+                        ),
                         DataCell(
                           IconButton(
                             icon: const Icon(Icons.map, size: 18),
