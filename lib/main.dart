@@ -78,37 +78,42 @@ class _AuthGate extends StatelessWidget {
         if (session != null) {
           // Warm the towns cache so the first TownsPage open is instant.
           unawaited(TownsCache.refresh(supabase).catchError((_) => <String>[]));
-          return FutureBuilder<SavedCanvassingLocation?>(
-            future: CanvassingLocationCache.read(),
-            builder: (context, locationSnapshot) {
-              if (locationSnapshot.connectionState == ConnectionState.waiting) {
-                return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                );
-              }
+          return _NamePromptGate(
+            child: FutureBuilder<SavedCanvassingLocation?>(
+              future: CanvassingLocationCache.read(),
+              builder: (context, locationSnapshot) {
+                if (locationSnapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
 
-              final location = locationSnapshot.data;
-              if (location != null &&
-                  location.hasTown &&
-                  location.hasStreet &&
-                  location.hasAddress) {
-                return HouseDetailsPage(
-                  town: location.town!,
-                  street: location.street!,
-                  address: location.address!,
-                );
-              }
-              if (location != null && location.hasTown && location.hasStreet) {
-                return HousesPage(
-                  town: location.town!,
-                  street: location.street!,
-                );
-              }
-              if (location != null && location.hasTown) {
-                return StreetsPage(town: location.town!);
-              }
-              return const TownsPage();
-            },
+                final location = locationSnapshot.data;
+                if (location != null &&
+                    location.hasTown &&
+                    location.hasStreet &&
+                    location.hasAddress) {
+                  return HouseDetailsPage(
+                    town: location.town!,
+                    street: location.street!,
+                    address: location.address!,
+                  );
+                }
+                if (location != null &&
+                    location.hasTown &&
+                    location.hasStreet) {
+                  return HousesPage(
+                    town: location.town!,
+                    street: location.street!,
+                  );
+                }
+                if (location != null && location.hasTown) {
+                  return StreetsPage(town: location.town!);
+                }
+                return const TownsPage();
+              },
+            ),
           );
         }
 
@@ -117,4 +122,134 @@ class _AuthGate extends StatelessWidget {
       },
     );
   }
+}
+
+class _NamePromptGate extends StatefulWidget {
+  const _NamePromptGate({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_NamePromptGate> createState() => _NamePromptGateState();
+}
+
+class _NamePromptGateState extends State<_NamePromptGate> {
+  bool _checked = false;
+  bool _prompting = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_checked) {
+      _checked = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkName());
+    }
+  }
+
+  Future<void> _checkName() async {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    if (user == null || !mounted) return;
+    try {
+      final profile = await client
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('user_id', user.id)
+          .maybeSingle();
+      if (!mounted || profile == null) return;
+      final first = (profile['first_name'] ?? '').toString().trim();
+      final last = (profile['last_name'] ?? '').toString().trim();
+      if (first.isNotEmpty && last.isNotEmpty) return;
+      await _promptForName(client);
+    } catch (error) {
+      debugPrint('Could not check profile name: $error');
+    }
+  }
+
+  Future<void> _promptForName(SupabaseClient client) async {
+    if (_prompting || !mounted) return;
+    _prompting = true;
+    final first = TextEditingController();
+    final last = TextEditingController();
+    String? error;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Add your name'),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Enter your first and last name to finish setting up your account.',
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: first,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(labelText: 'First name'),
+                  ),
+                  TextField(
+                    controller: last,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(labelText: 'Last name'),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () async {
+                  final firstName = first.text.trim();
+                  final lastName = last.text.trim();
+                  if (firstName.isEmpty || lastName.isEmpty) {
+                    setDialogState(
+                      () => error = 'Enter both names to continue.',
+                    );
+                    return;
+                  }
+                  try {
+                    await client.rpc(
+                      'save_my_name',
+                      params: {
+                        'p_first_name': firstName,
+                        'p_last_name': lastName,
+                      },
+                    );
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  } catch (_) {
+                    setDialogState(
+                      () =>
+                          error = 'Could not save your name. Please try again.',
+                    );
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      first.dispose();
+      last.dispose();
+      _prompting = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

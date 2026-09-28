@@ -66,6 +66,7 @@ List<List<String>> canvasserPayrollRows({
   required double conversionRate,
   required DateRangeStrings range,
   required bool zipFiltered,
+  Map<String, String> namesByEmail = const {},
 }) {
   num number(dynamic value) =>
       value is num ? value : num.tryParse('$value') ?? 0;
@@ -76,6 +77,7 @@ List<List<String>> canvasserPayrollRows({
     email,
     () => {
       'email': email,
+      'name': namesByEmail[email] ?? '',
       'knocks': 0,
       'answers': 0,
       'signups': 0,
@@ -113,6 +115,8 @@ List<List<String>> canvasserPayrollRows({
     [
       'Start date',
       'End date',
+      'First name',
+      'Last name',
       'Canvasser',
       'Total Cost',
       'Knocks',
@@ -168,9 +172,16 @@ List<List<String>> canvasserPayrollRows({
       filters: const {},
     );
     final values = {for (final row in summary.skip(1)) row[0]: row[1]};
+    final nameParts = (p['name'] as String)
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
     output.add([
       range.start,
       range.end,
+      nameParts.isEmpty ? '' : nameParts.first,
+      nameParts.length < 2 ? '' : nameParts.skip(1).join(' '),
       email,
       values['Total Cost']!,
       values['Knocks']!,

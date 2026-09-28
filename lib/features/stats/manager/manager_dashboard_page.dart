@@ -52,6 +52,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   List<String> _availableCanvassers = [];
   List<String> _availableFilterUsers = [];
   final Map<String, String> _canvasserIdByEmail = {};
+  final Map<String, String> _canvasserNameByEmail = {};
   bool _showFilters = true;
   late TextEditingController _zipTextController;
 
@@ -113,12 +114,19 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       final canvassersData = await _supabase.rpc('manager_list_canvassers');
 
       final canvasserIdsByEmail = <String, String>{};
+      final canvasserNamesByEmail = <String, String>{};
       for (final item in canvassersData as List) {
         final row = Map<String, dynamic>.from(item as Map);
         final email = (row['user_email'] ?? '').toString();
         final userId = (row['user_id'] ?? '').toString();
         if (email.isNotEmpty && userId.isNotEmpty) {
           canvasserIdsByEmail[email] = userId;
+          final first = (row['first_name'] ?? '').toString().trim();
+          final last = (row['last_name'] ?? '').toString().trim();
+          canvasserNamesByEmail[email] = [
+            first,
+            last,
+          ].where((name) => name.isNotEmpty).join(' ');
         }
       }
       final canvassers = canvasserIdsByEmail.keys.toList()..sort();
@@ -130,6 +138,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
         _canvasserIdByEmail
           ..clear()
           ..addAll(canvasserIdsByEmail);
+        _canvasserNameByEmail
+          ..clear()
+          ..addAll(canvasserNamesByEmail);
       });
       await _fetchWeeklyGoals();
     } catch (e) {
@@ -467,6 +478,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
           .map((row) => (row['user_email'] ?? '').toString().trim())
           .where((email) => email.isNotEmpty),
     }.toList()..sort();
+  }
+
+  String _canvasserLabel(String email) {
+    final name = (_canvasserNameByEmail[email] ?? '').trim();
+    return name.isEmpty ? email : '$name ($email)';
   }
 
   Future<void> _fetchWeeklyGoals({
@@ -914,7 +930,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
               children: [
                 TextField(
                   decoration: const InputDecoration(
-                    labelText: 'Search by email',
+                    labelText: 'Search by name or email',
                     prefixIcon: Icon(Icons.search),
                   ),
                   onChanged: (value) =>
@@ -931,10 +947,12 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   child: ListView(
                     children: [
                       for (final email in _availableFilterUsers.where(
-                        (email) => email.toLowerCase().contains(search),
+                        (email) => _canvasserLabel(
+                          email,
+                        ).toLowerCase().contains(search),
                       ))
                         CheckboxListTile(
-                          title: Text(email),
+                          title: Text(_canvasserLabel(email)),
                           value: selected.contains(email),
                           onChanged: (checked) => update(() {
                             if (checked == true) {
@@ -945,7 +963,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                           }),
                         ),
                       if (!_availableFilterUsers.any(
-                        (email) => email.toLowerCase().contains(search),
+                        (email) => _canvasserLabel(
+                          email,
+                        ).toLowerCase().contains(search),
                       ))
                         const Padding(
                           padding: EdgeInsets.all(16),
@@ -997,6 +1017,7 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
       knockDateKeys: _knockDateKeys,
       conversionRate: _conversionRate,
       zipFiltered: _selectedZipCodes.isNotEmpty,
+      namesByEmail: _canvasserNameByEmail,
       range: DateRangeStrings(
         start: _fmtYmd(_range!.start),
         end: _fmtYmd(_range!.end),
