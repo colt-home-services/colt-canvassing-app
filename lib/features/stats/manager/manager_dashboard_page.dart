@@ -942,7 +942,6 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
   Future<void> _selectTeamMembers() async {
     final selected = _selectedCanvassers.toSet();
     var search = '';
-    var filterField = 'name';
     final result = await showDialog<Set<String>>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -953,22 +952,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
             height: 360,
             child: Column(
               children: [
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'name', label: Text('Name')),
-                    ButtonSegment(value: 'email', label: Text('Email')),
-                  ],
-                  selected: {filterField},
-                  onSelectionChanged: (value) => update(() {
-                    filterField = value.first;
-                    search = '';
-                  }),
-                ),
-                const SizedBox(height: 12),
                 TextField(
-                  key: ValueKey(filterField),
                   decoration: const InputDecoration(
-                    labelText: 'Search',
+                    labelText: 'Search by name or email',
                     prefixIcon: Icon(Icons.search),
                   ),
                   onChanged: (value) =>
@@ -985,12 +971,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   child: ListView(
                     children: [
                       for (final email in _availableFilterUsers.where(
-                        (email) =>
-                            (filterField == 'name'
-                                    ? (_canvasserNameByEmail[email] ?? '')
-                                    : email)
-                                .toLowerCase()
-                                .contains(search),
+                        (email) => _canvasserLabel(
+                          email,
+                        ).toLowerCase().contains(search),
                       ))
                         CheckboxListTile(
                           title: Text(_canvasserLabel(email)),
@@ -1004,12 +987,9 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                           }),
                         ),
                       if (!_availableFilterUsers.any(
-                        (email) =>
-                            (filterField == 'name'
-                                    ? (_canvasserNameByEmail[email] ?? '')
-                                    : email)
-                                .toLowerCase()
-                                .contains(search),
+                        (email) => _canvasserLabel(
+                          email,
+                        ).toLowerCase().contains(search),
                       ))
                         const Padding(
                           padding: EdgeInsets.all(16),
