@@ -1033,6 +1033,155 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
     ),
   );
 
+  Future<void> _manageCanvasserNames() async {
+    try {
+      final raw = await _supabase.rpc('manager_list_canvassers');
+      if (!mounted) return;
+      final people = (raw as List)
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList();
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Canvasser names'),
+          content: SizedBox(
+            width: 480,
+            child: people.isEmpty
+                ? const Text('No canvassers found.')
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: people.length,
+                    itemBuilder: (context, index) {
+                      final person = people[index];
+                      final first = (person['first_name'] ?? '').toString();
+                      final last = (person['last_name'] ?? '').toString();
+                      final email = (person['user_email'] ?? '').toString();
+                      final displayName = [
+                        first,
+                        last,
+                      ].where((part) => part.trim().isNotEmpty).join(' ');
+                      return ListTile(
+                        title: Text(displayName.isEmpty ? email : displayName),
+                        subtitle: Text(email),
+                        trailing: const Icon(Icons.edit_outlined),
+                        onTap: () async {
+                          final saved = await _editCanvasserName(person);
+                          if (saved && dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                            await _loadFilterOptions();
+                            if (mounted) _fetch();
+                          }
+                        },
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load canvasser names: $error')),
+      );
+    }
+  }
+
+  Future<bool> _editCanvasserName(Map<String, dynamic> person) async {
+    final first = TextEditingController(
+      text: (person['first_name'] ?? '').toString(),
+    );
+    final last = TextEditingController(
+      text: (person['last_name'] ?? '').toString(),
+    );
+    String? error;
+    try {
+      return await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => StatefulBuilder(
+              builder: (context, setDialogState) => AlertDialog(
+                title: const Text('Edit canvasser name'),
+                content: SizedBox(
+                  width: 360,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: first,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'First name',
+                        ),
+                      ),
+                      TextField(
+                        controller: last,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'Last name',
+                        ),
+                      ),
+                      if (error != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      final firstName = first.text.trim();
+                      final lastName = last.text.trim();
+                      if (firstName.isEmpty || lastName.isEmpty) {
+                        setDialogState(() => error = 'Enter both names.');
+                        return;
+                      }
+                      try {
+                        await _supabase.rpc(
+                          'manager_set_canvasser_name',
+                          params: {
+                            'p_user_id': person['user_id'],
+                            'p_first_name': firstName,
+                            'p_last_name': lastName,
+                          },
+                        );
+                        if (dialogContext.mounted) {
+                          Navigator.pop(dialogContext, true);
+                        }
+                      } catch (_) {
+                        setDialogState(
+                          () => error =
+                              'Could not save the name. Please try again.',
+                        );
+                      }
+                    },
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ),
+          ) ??
+          false;
+    } finally {
+      first.dispose();
+      last.dispose();
+    }
+  }
+
   Future<void> _exportSummary(String format) async {
     if (_loading || !await _fetch() || !mounted || _range == null) return;
     final rows = canvasserPayrollRows(
@@ -1165,6 +1314,11 @@ class _ManagerDashboardPageState extends State<ManagerDashboardPage> {
                   ),
                 ),
                 _buildCanvasserDropdown(),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _manageCanvasserNames,
+                  icon: const Icon(Icons.badge_outlined),
+                  label: const Text('Manage names'),
+                ),
                 SizedBox(
                   width: 170,
                   child: TextField(
